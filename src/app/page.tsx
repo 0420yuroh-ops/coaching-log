@@ -21,7 +21,7 @@ type Analysis = {
   behavior: string; next_session: string; intervention: string; act_insight: string; nlp_insight: string;
 };
 type Session = { id: string; athlete_id: string; session_date: string; title: string; raw_note: string; ai_status: "none" | "done"; analysis: Analysis | null; };
-type Athlete = { id: string; name: string; sport: string; goal: string; notes: string; created_at: string; archived_at: string | null; };
+type Athlete = { id: string; name: string; sport: string; goal: string; notes: string; created_at: string; archived_at: string | null; sort_order: number; };
 type SessionsMap = Record<string, Session[]>;
 
 function useAutoSave(value: string, onSave: (v: string) => void, delay = 1500) {
@@ -99,7 +99,120 @@ function AnalysisResult({ analysis, onUpdate }: { analysis: Analysis; onUpdate: 
   );
 }
 
-function Sidebar({ athletes, selectedId, onSelect, onAdd }: { athletes: Athlete[]; selectedId: string | null; onSelect: (id: string) => void; onAdd: () => void }) {
+function EditAthleteModal({ athlete, onClose, onSave, onDelete, onArchive }: { athlete: Athlete; onClose: () => void; onSave: (a: Partial<Athlete>) => void; onDelete: () => void; onArchive: () => void }) {
+  const [name, setName] = useState(athlete.name);
+  const [sport, setSport] = useState(athlete.sport || "");
+  const [goal, setGoal] = useState(athlete.goal || "");
+  const [notes, setNotes] = useState(athlete.notes || "");
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, width: 420 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 20 }}>選手情報を編集</div>
+        {[
+          { label: "名前 *", value: name, set: setName, ph: "田中 颯太", multi: false },
+          { label: "競技", value: sport, set: setSport, ph: "バスケットボール", multi: false },
+          { label: "目標", value: goal, set: setGoal, ph: "インターハイ出場", multi: false },
+          { label: "特記事項（コーチメモ）", value: notes, set: setNotes, ph: "プレッシャー時に消極的になりやすい", multi: true },
+        ].map(f => (
+          <div key={f.label} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
+            {f.multi ? (
+              <textarea value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph} rows={3}
+                style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }} />
+            ) : (
+              <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
+                style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box" }} />
+            )}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, cursor: "pointer" }}>キャンセル</button>
+          <button onClick={() => { if (name.trim()) { onSave({ name, sport, goal, notes }); onClose(); } }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer" }}>保存</button>
+        </div>
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={() => { onArchive(); onClose(); }} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>
+            {athlete.archived_at ? "📂 アーカイブから戻す" : "📁 アーカイブする"}
+          </button>
+          {!confirming ? (
+            <button onClick={() => setConfirming(true)} title="削除" style={{ padding: "6px 8px", borderRadius: 8, border: "none", background: "transparent", color: COLORS.muted, fontSize: 14, cursor: "pointer", opacity: 0.5 }}>🗑️</button>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 11, color: "#ef4444" }}>本当に削除しますか？</div>
+              <button onClick={() => setConfirming(false)} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>やめる</button>
+              <button onClick={() => { onDelete(); onClose(); }} style={{ padding: "4px 8px", borderRadius: 6, border: "none", background: "#ef4444", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>削除</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditSessionModal({ session, onClose, onSave, onDelete }: { session: Session; onClose: () => void; onSave: (s: { title: string; session_date: string }) => void; onDelete: () => void }) {
+  const [title, setTitle] = useState(session.title);
+  const [date, setDate] = useState(session.session_date);
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, width: 400 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 20 }}>セッションを編集</div>
+        {[
+          { label: "日付", value: date, set: setDate, type: "date", ph: "" },
+          { label: "タイトル", value: title, set: setTitle, type: "text", ph: "試合前メンタル調整" },
+        ].map(f => (
+          <div key={f.label} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
+            <input type={f.type} value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
+              style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", colorScheme: "dark" }} />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, cursor: "pointer" }}>キャンセル</button>
+          <button onClick={() => { if (title.trim()) { onSave({ title, session_date: date }); onClose(); } }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer" }}>保存</button>
+        </div>
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+          {!confirming ? (
+            <button onClick={() => setConfirming(true)} title="削除" style={{ padding: "6px 8px", borderRadius: 8, border: "none", background: "transparent", color: COLORS.muted, fontSize: 14, cursor: "pointer", opacity: 0.5 }}>🗑️</button>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 11, color: "#ef4444" }}>本当に削除しますか？</div>
+              <button onClick={() => setConfirming(false)} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>やめる</button>
+              <button onClick={() => { onDelete(); onClose(); }} style={{ padding: "4px 8px", borderRadius: 6, border: "none", background: "#ef4444", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>削除</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onReorder, onArchive }: {
+  athletes: Athlete[]; selectedId: string | null;
+  onSelect: (id: string) => void; onAdd: () => void; onEdit: (a: Athlete) => void;
+  onReorder: (newOrder: Athlete[]) => void; onArchive: (a: Athlete) => void;
+}) {
+  const [showArchived, setShowArchived] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const active = athletes.filter(a => !a.archived_at).sort((a, b) => a.sort_order - b.sort_order);
+  const archived = athletes.filter(a => a.archived_at);
+
+  function handleDragStart(id: string) { setDraggingId(id); }
+  function handleDragOver(e: React.DragEvent, id: string) { e.preventDefault(); setDragOverId(id); }
+  function handleDrop(targetId: string) {
+    if (!draggingId || draggingId === targetId) { setDraggingId(null); setDragOverId(null); return; }
+    const list = [...active];
+    const fromIdx = list.findIndex(a => a.id === draggingId);
+    const toIdx = list.findIndex(a => a.id === targetId);
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    const updated = list.map((a, i) => ({ ...a, sort_order: i }));
+    onReorder(updated);
+    setDraggingId(null); setDragOverId(null);
+  }
+
   return (
     <div style={{ width: 220, minWidth: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
@@ -109,14 +222,45 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd }: { athletes: Athlete[
         </button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
-        {athletes.filter(a => !a.archived_at).map(a => (
-          <div key={a.id} onClick={() => onSelect(a.id)} style={{ padding: "10px 12px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : "transparent", border: `1px solid ${selectedId === a.id ? COLORS.accent : "transparent"}`, transition: "all 0.15s" }}>
+        {active.map(a => (
+          <div key={a.id}
+            draggable
+            onDragStart={() => handleDragStart(a.id)}
+            onDragOver={e => handleDragOver(e, a.id)}
+            onDrop={() => handleDrop(a.id)}
+            onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}
+            onClick={() => onSelect(a.id)}
+            style={{ padding: "10px 12px", borderRadius: 8, cursor: "grab", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : dragOverId === a.id ? COLORS.card : "transparent", border: `1px solid ${selectedId === a.id ? COLORS.accent : dragOverId === a.id ? COLORS.border : "transparent"}`, transition: "all 0.15s", opacity: draggingId === a.id ? 0.4 : 1, position: "relative" }}
+            onMouseEnter={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "1"; }}
+            onMouseLeave={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "0"; }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 28, height: 28, borderRadius: "50%", background: COLORS.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: COLORS.accent, flexShrink: 0 }}>{a.name[0]}</div>
-              <div style={{ minWidth: 0 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
                 <div style={{ fontSize: 11, color: COLORS.muted }}>{a.sport}</div>
               </div>
+              <button className="edit-btn" onClick={e => { e.stopPropagation(); onEdit(a); }} style={{ opacity: 0, background: "transparent", border: "none", cursor: "pointer", color: COLORS.muted, fontSize: 12, padding: "2px 4px", borderRadius: 4, transition: "opacity 0.15s", flexShrink: 0 }}>✏️</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Archive toggle */}
+      <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "8px" }}>
+        <button onClick={() => setShowArchived(p => !p)} style={{ width: "100%", padding: "8px 10px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: COLORS.muted, fontSize: 11, borderRadius: 6 }}>
+          <span>{showArchived ? "▲" : "▼"}</span>
+          アーカイブ {archived.length > 0 && `(${archived.length})`}
+        </button>
+        {showArchived && archived.map(a => (
+          <div key={a.id} onClick={() => onSelect(a.id)} style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : "transparent", opacity: 0.6 }}
+            onMouseEnter={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "1"; }}
+            onMouseLeave={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "0"; }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: COLORS.muted, flexShrink: 0 }}>{a.name[0]}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12, color: COLORS.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+              </div>
+              <button className="edit-btn" onClick={e => { e.stopPropagation(); onEdit(a); }} style={{ opacity: 0, background: "transparent", border: "none", cursor: "pointer", color: COLORS.muted, fontSize: 12, padding: "2px 4px", borderRadius: 4, transition: "opacity 0.15s", flexShrink: 0 }}>✏️</button>
             </div>
           </div>
         ))}
@@ -157,7 +301,7 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd }: { athle
   );
 }
 
-function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAnalyze, analyzing }: { session: Session | undefined; athlete: Athlete | undefined; onUpdateNote: (note: string) => void; onUpdateAnalysis: (a: Analysis) => void; onAnalyze: (note: string) => void; analyzing: boolean }) {
+function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAnalyze, analyzing, onEditSession }: { session: Session | undefined; athlete: Athlete | undefined; onUpdateNote: (note: string) => void; onUpdateAnalysis: (a: Analysis) => void; onAnalyze: (note: string) => void; analyzing: boolean; onEditSession: (s: Session) => void }) {
   const [note, setNote] = useState(session?.raw_note || "");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
   const [activeTab, setActiveTab] = useState<"note" | "result">(session?.ai_status === "done" ? "result" : "note");
@@ -172,9 +316,12 @@ function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAna
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: COLORS.bg, height: "100%", minWidth: 0 }}>
       <div style={{ padding: "16px 24px", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>{session.title}</div>
-            <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 2 }}>{athlete?.name} · {session.session_date}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>{session.title}</div>
+              <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 2 }}>{athlete?.name} · {session.session_date}</div>
+            </div>
+            <button onClick={() => onEditSession(session)} style={{ background: "transparent", border: "none", cursor: "pointer", color: COLORS.muted, fontSize: 13, padding: "4px 6px", borderRadius: 4 }} title="セッションを編集">✏️</button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 11, color: saveStatus === "saving" ? COLORS.warning : COLORS.success }}>{saveStatus === "saving" ? "保存中..." : "✓ 保存済"}</div>
@@ -273,6 +420,8 @@ export default function Home() {
   const [showAddAthlete, setShowAddAthlete] = useState(false);
   const [showAddSession, setShowAddSession] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editingAthlete, setEditingAthlete] = useState<Athlete | null>(null);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
 
   useEffect(() => {
     async function loadAthletes() {
@@ -335,6 +484,52 @@ export default function Home() {
     if (data) { setAthletes(prev => [...prev, data]); setSessions(prev => ({ ...prev, [data.id]: [] })); setSelectedAthleteId(data.id); setSelectedSessionId(null); }
   }
 
+  async function handleReorder(newOrder: Athlete[]) {
+    setAthletes(prev => {
+      const archived = prev.filter(a => a.archived_at);
+      return [...newOrder, ...archived];
+    });
+    await Promise.all(newOrder.map(a => supabase.from("athletes").update({ sort_order: a.sort_order }).eq("id", a.id)));
+  }
+
+  async function handleArchiveAthlete() {
+    if (!editingAthlete) return;
+    const newVal = editingAthlete.archived_at ? null : new Date().toISOString();
+    setAthletes(prev => prev.map(a => a.id === editingAthlete.id ? { ...a, archived_at: newVal } : a));
+    await supabase.from("athletes").update({ archived_at: newVal }).eq("id", editingAthlete.id);
+    if (!newVal && selectedAthleteId === editingAthlete.id) { setSelectedAthleteId(null); setSelectedSessionId(null); }
+    setEditingAthlete(null);
+  }
+
+  async function handleDeleteAthlete() {
+    if (!editingAthlete) return;
+    await supabase.from("athletes").delete().eq("id", editingAthlete.id);
+    setAthletes(prev => prev.filter(a => a.id !== editingAthlete.id));
+    setSessions(prev => { const next = { ...prev }; delete next[editingAthlete.id]; return next; });
+    if (selectedAthleteId === editingAthlete.id) { setSelectedAthleteId(null); setSelectedSessionId(null); }
+    setEditingAthlete(null);
+  }
+
+  async function handleDeleteSession() {
+    if (!editingSession || !selectedAthleteId) return;
+    await supabase.from("sessions").delete().eq("id", editingSession.id);
+    setSessions(prev => ({ ...prev, [selectedAthleteId]: prev[selectedAthleteId].filter(s => s.id !== editingSession.id) }));
+    if (selectedSessionId === editingSession.id) setSelectedSessionId(null);
+    setEditingSession(null);
+  }
+
+  async function handleEditAthlete(updates: Partial<Athlete>) {
+    if (!editingAthlete) return;
+    setAthletes(prev => prev.map(a => a.id === editingAthlete.id ? { ...a, ...updates } : a));
+    await supabase.from("athletes").update(updates).eq("id", editingAthlete.id);
+  }
+
+  async function handleEditSession(updates: { title: string; session_date: string }) {
+    if (!editingSession || !selectedAthleteId) return;
+    setSessions(prev => ({ ...prev, [selectedAthleteId]: prev[selectedAthleteId].map(s => s.id === editingSession.id ? { ...s, ...updates } : s) }));
+    await supabase.from("sessions").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", editingSession.id);
+  }
+
   async function handleAddSession({ title, date }: { title: string; date: string }) {
     if (!selectedAthleteId) return;
     const { data } = await supabase.from("sessions").insert({ athlete_id: selectedAthleteId, title, session_date: date, raw_note: "", ai_status: "none" }).select().single();
@@ -357,12 +552,14 @@ export default function Home() {
         <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>MVP v0.1</div>
       </div>
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} />
+        <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
         <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} onAdd={() => setShowAddSession(true)} />
-        <SessionDetail session={selectedSession} athlete={selectedAthlete} onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis} onAnalyze={handleAnalyze} analyzing={analyzing} />
+        <SessionDetail session={selectedSession} athlete={selectedAthlete} onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis} onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
       </div>
       {showAddAthlete && <AddAthleteModal onClose={() => setShowAddAthlete(false)} onAdd={handleAddAthlete} />}
       {showAddSession && selectedAthlete && <AddSessionModal athleteName={selectedAthlete.name} onClose={() => setShowAddSession(false)} onAdd={handleAddSession} />}
+      {editingAthlete && <EditAthleteModal athlete={editingAthlete} onClose={() => setEditingAthlete(null)} onSave={handleEditAthlete} onDelete={handleDeleteAthlete} onArchive={handleArchiveAthlete} />}
+      {editingSession && <EditSessionModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleEditSession} onDelete={handleDeleteSession} />}
     </div>
   );
 }
