@@ -21,7 +21,7 @@ type Analysis = {
   behavior: string; next_session: string; intervention: string; act_insight: string; nlp_insight: string;
 };
 type Session = { id: string; athlete_id: string; session_date: string; title: string; raw_note: string; ai_status: "none" | "done"; analysis: Analysis | null; };
-type Athlete = { id: string; name: string; sport: string; goal: string; notes: string; created_at: string; archived_at: string | null; sort_order: number; };
+type Athlete = { id: string; name: string; sport: string; goal: string; notes: string; profile: string; created_at: string; archived_at: string | null; sort_order: number; };
 type SessionsMap = Record<string, Session[]>;
 
 function useAutoSave(value: string, onSave: (v: string) => void, delay = 1500) {
@@ -103,32 +103,34 @@ function EditAthleteModal({ athlete, onClose, onSave, onDelete, onArchive }: { a
   const [name, setName] = useState(athlete.name);
   const [sport, setSport] = useState(athlete.sport || "");
   const [goal, setGoal] = useState(athlete.goal || "");
-  const [notes, setNotes] = useState(athlete.notes || "");
+  const [profile, setProfile] = useState(athlete.profile || "");
   const [confirming, setConfirming] = useState(false);
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, width: 420 }}>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, width: 460, maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 20 }}>選手情報を編集</div>
         {[
-          { label: "名前 *", value: name, set: setName, ph: "田中 颯太", multi: false },
-          { label: "競技", value: sport, set: setSport, ph: "バスケットボール", multi: false },
-          { label: "目標", value: goal, set: setGoal, ph: "インターハイ出場", multi: false },
-          { label: "特記事項（コーチメモ）", value: notes, set: setNotes, ph: "プレッシャー時に消極的になりやすい", multi: true },
+          { label: "名前 *", value: name, set: setName, ph: "田中 颯太" },
+          { label: "競技", value: sport, set: setSport, ph: "バスケットボール" },
+          { label: "目標", value: goal, set: setGoal, ph: "インターハイ出場" },
         ].map(f => (
           <div key={f.label} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
-            {f.multi ? (
-              <textarea value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph} rows={3}
-                style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }} />
-            ) : (
-              <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
-                style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box" }} />
-            )}
+            <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
+              style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box" }} />
           </div>
         ))}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>選手プロフィール</div>
+          <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 8 }}>競技背景・性格・人間関係・モチベーション源泉など、AI分析の文脈になる情報を自由に記述してください</div>
+          <textarea value={profile} onChange={e => setProfile(e.target.value)}
+            placeholder={"例）高校3年。中学から競技を始め、もともと競技自体が好きで取り組んでいる。プレッシャー場面では自己批判が強くなる傾向。チームメイトとの関係は良好だが、監督への遠慮が強い。家族は競技に積極的で、特に母親のサポートが大きい。"}
+            rows={7}
+            style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit", lineHeight: 1.7 }} />
+        </div>
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, cursor: "pointer" }}>キャンセル</button>
-          <button onClick={() => { if (name.trim()) { onSave({ name, sport, goal, notes }); onClose(); } }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer" }}>保存</button>
+          <button onClick={() => { if (name.trim()) { onSave({ name, sport, goal, profile }); onClose(); } }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer" }}>保存</button>
         </div>
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button onClick={() => { onArchive(); onClose(); }} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>
