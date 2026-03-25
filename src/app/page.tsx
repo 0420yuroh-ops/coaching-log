@@ -4,16 +4,16 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
 const COLORS = {
-  bg: "#0f1117",
-  surface: "#161b27",
-  card: "#1c2333",
-  border: "#252d3d",
-  accent: "#3b82f6",
-  accentSoft: "#1d3660",
-  text: "#e2e8f0",
-  muted: "#64748b",
-  success: "#10b981",
-  warning: "#f59e0b",
+  bg: "#1a1d23",
+  surface: "#20242c",
+  card: "#272b35",
+  border: "#2e3340",
+  accent: "#4f8ef7",
+  accentSoft: "#1e3460",
+  text: "#dde1ea",
+  muted: "#7a8499",
+  success: "#34c77b",
+  warning: "#f5a623",
 };
 
 type Analysis = {
@@ -58,13 +58,13 @@ function EditableField({ value, onChange, singleLine = false, color }: { value: 
 function AnalysisResult({ analysis, onUpdate }: { analysis: Analysis; onUpdate: (a: Analysis) => void }) {
   const [openDeep, setOpenDeep] = useState(false);
   const display = [
-    { key: "summary", label: "セッション要約", icon: "📋", color: "#3b82f6", single: false },
-    { key: "theme", label: "今回のテーマ", icon: "🎯", color: "#8b5cf6", single: true },
-    { key: "mental_state", label: "感情・メンタル状態", icon: "💭", color: "#ec4899", single: false },
-    { key: "cognition", label: "認知パターン", icon: "🧠", color: "#f59e0b", single: false },
-    { key: "behavior", label: "行動変容点", icon: "🔄", color: "#10b981", single: false },
-    { key: "next_session", label: "次回セッション課題", icon: "📅", color: "#06b6d4", single: false },
-    { key: "intervention", label: "コーチの介入内容", icon: "🛠️", color: "#64748b", single: false },
+    { key: "summary", label: "セッション要約", icon: "📋", color: "#5b8def", single: false },
+    { key: "theme", label: "今回のテーマ", icon: "🎯", color: "#9b7de8", single: true },
+    { key: "mental_state", label: "感情・メンタル状態", icon: "💭", color: "#d4699a", single: false },
+    { key: "cognition", label: "認知パターン", icon: "🧠", color: "#c9923a", single: false },
+    { key: "behavior", label: "行動変容点", icon: "🔄", color: "#3daa72", single: false },
+    { key: "next_session", label: "次回セッション課題", icon: "📅", color: "#2ea8b8", single: false },
+    { key: "intervention", label: "コーチの介入内容", icon: "🛠️", color: "#7a8499", single: false },
   ] as const;
   const deep = [
     { key: "act_insight", label: "ACT視点（心理的柔軟性）", icon: "🌿" },
@@ -189,9 +189,290 @@ function EditSessionModal({ session, onClose, onSave, onDelete }: { session: Ses
   );
 }
 
-function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onReorder, onArchive }: {
+type AthleteDetailSession = {
+  id: string; session_date: string; title: string; ai_status: string;
+  analysis: Analysis | null;
+};
+
+type PeriodKey = "recent3" | "1month" | "3months" | "all";
+
+type MetaAnalysis = {
+  cognition_change: string;
+  emotion_trend: string;
+  recurring_themes: string;
+  growth_points: string;
+  next_phase: string;
+};
+
+function MetaFieldCard({ field, value, editing, onChange, collapsible }: {
+  field: { key: string; label: string; color: string; icon: string };
+  value: string; editing: boolean; onChange: (v: string) => void; collapsible: boolean;
+}) {
+  const [open, setOpen] = useState(!collapsible);
+  return (
+    <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden", borderLeft: `3px solid ${field.color}` }}>
+      <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: collapsible ? "pointer" : "default" }}
+        onClick={() => collapsible && setOpen(p => !p)}>
+        <div style={{ fontSize: 11, color: field.color, fontWeight: 700, letterSpacing: "0.06em" }}>{field.icon} {field.label}</div>
+        {collapsible && <span style={{ fontSize: 12, color: COLORS.muted }}>{open ? "▲" : "▼"}</span>}
+      </div>
+      {(!collapsible || open) && (
+        <div style={{ padding: "0 16px 14px" }}>
+          {editing ? (
+            <textarea value={value} onChange={e => onChange(e.target.value)} rows={4}
+              style={{ width: "100%", background: COLORS.card, border: `1px solid ${field.color}`, borderRadius: 6, color: COLORS.text, fontSize: 13, padding: "8px 10px", outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.75, boxSizing: "border-box" }} />
+          ) : (
+            <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{value}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
+  athlete: Athlete; onClose: () => void;
+  onUpdateAnalysis: (sessionId: string, analysis: Analysis) => Promise<void>;
+}) {
+  const [period, setPeriod] = useState<PeriodKey>("3months");
+  const [sessions, setSessions] = useState<AthleteDetailSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [meta, setMeta] = useState<MetaAnalysis | null>(null);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaError, setMetaError] = useState(false);
+  const [metaInfo, setMetaInfo] = useState<{ generatedAt: string; updatedAt: string; periodLabel: string; sessionCount: number } | null>(null);
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [metaDraft, setMetaDraft] = useState<MetaAnalysis | null>(null);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string, ok: boolean) {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  const PERIODS: { key: PeriodKey; label: string }[] = [
+    { key: "recent3", label: "直近3回" },
+    { key: "1month",  label: "1ヶ月" },
+    { key: "3months", label: "3ヶ月" },
+    { key: "all",     label: "全期間" },
+  ];
+
+  const META_FIELDS: { key: keyof MetaAnalysis; label: string; color: string; icon: string }[] = [
+    { key: "cognition_change",  label: "認知パターンの変化",       color: "#f59e0b", icon: "🧠" },
+    { key: "emotion_trend",     label: "感情・メンタル状態の推移", color: "#ec4899", icon: "💭" },
+    { key: "recurring_themes",  label: "繰り返されるテーマ・課題", color: "#8b5cf6", icon: "🔁" },
+    { key: "growth_points",     label: "成長・変化のポイント",     color: "#10b981", icon: "📈" },
+    { key: "next_phase",        label: "次のフェーズへの示唆",     color: "#3b82f6", icon: "🎯" },
+  ];
+
+  async function fetchSessions() {
+    setLoading(true);
+    try {
+      let query = supabase.from("sessions").select("*").eq("athlete_id", athlete.id).order("session_date", { ascending: true });
+      if (period === "recent3") query = supabase.from("sessions").select("*").eq("athlete_id", athlete.id).order("session_date", { ascending: false }).limit(3);
+      else if (period === "1month") query = query.gte("session_date", new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]);
+      else if (period === "3months") query = query.gte("session_date", new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]);
+
+      const { data: sessionData } = await query;
+      if (!sessionData) { setLoading(false); return; }
+
+      const ids = sessionData.map(s => s.id);
+      const { data: analysisData } = ids.length > 0
+        ? await supabase.from("session_analyses").select("*").in("session_id", ids)
+        : { data: [] };
+
+      const merged: AthleteDetailSession[] = sessionData.map(s => ({
+        ...s, analysis: analysisData?.find((a: { session_id: string }) => a.session_id === s.id) || null,
+      }));
+      const sorted = period === "recent3" ? merged : [...merged].reverse();
+      setSessions(sorted);
+    } finally { setLoading(false); }
+  }
+
+  async function fetchSavedMeta() {
+    const { data } = await supabase.from("longitudinal_analyses").select("*").eq("athlete_id", athlete.id).single();
+    if (data) {
+      setMeta({ cognition_change: data.cognition_change, emotion_trend: data.emotion_trend, recurring_themes: data.recurring_themes, growth_points: data.growth_points, next_phase: data.next_phase });
+      setMetaInfo({ generatedAt: data.generated_at, updatedAt: data.updated_at, periodLabel: data.period, sessionCount: data.session_count });
+    }
+  }
+
+  async function handleGenerateMeta() {
+    const aiSessions = sessions.filter(s => s.analysis);
+    if (aiSessions.length === 0) return;
+    setMetaLoading(true); setMetaError(false);
+    try {
+      const res = await fetch("/api/meta-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ athlete, sessions: aiSessions }),
+      });
+      const data = await res.json();
+      if (data.meta) {
+        const now = new Date().toISOString();
+        const periodLabel = PERIODS.find(p => p.key === period)?.label || period;
+        await supabase.from("longitudinal_analyses").upsert({
+          athlete_id: athlete.id, ...data.meta,
+          period: periodLabel, session_count: aiSessions.length,
+          generated_at: now, updated_at: now,
+        }, { onConflict: "athlete_id" });
+        setMeta(data.meta);
+        setMetaInfo({ generatedAt: now, updatedAt: now, periodLabel, sessionCount: aiSessions.length });
+      } else setMetaError(true);
+    } catch { setMetaError(true); }
+    finally { setMetaLoading(false); }
+  }
+
+  async function autoSaveMeta(draft: MetaAnalysis) {
+    const now = new Date().toISOString();
+    await supabase.from("longitudinal_analyses").upsert({
+      athlete_id: athlete.id, ...draft,
+      period: metaInfo?.periodLabel || "", session_count: metaInfo?.sessionCount || 0,
+      generated_at: metaInfo?.generatedAt || now, updated_at: now,
+    }, { onConflict: "athlete_id" });
+    setMetaInfo(prev => prev ? { ...prev, updatedAt: now } : null);
+    setMeta(draft);
+    showToast("保存しました", true);
+  }
+
+  function handleMetaFieldChange(key: keyof MetaAnalysis, value: string) {
+    const updated = { ...(metaDraft || meta!), [key]: value };
+    setMetaDraft(updated);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => autoSaveMeta(updated), 1500);
+  }
+
+  useEffect(() => { fetchSessions(); }, [period]);
+  useEffect(() => { fetchSavedMeta(); }, []);
+
+  const aiCount = sessions.filter(s => s.analysis).length;
+
+  function formatDate(iso: string) {
+    const d = new Date(iso);
+    return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+
+  const displayMeta = metaDraft || meta;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 150, padding: 20 }}>
+      <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, width: "100%", maxWidth: 680, maxHeight: "90vh", display: "flex", flexDirection: "column", position: "relative" }}>
+
+        {/* Toast */}
+        {toast && (
+          <div style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.ok ? "#0f2a1a" : "#2a0f0f", border: `1px solid ${toast.ok ? COLORS.success : "#ef4444"}`, color: toast.ok ? COLORS.success : "#ef4444", fontSize: 12, fontWeight: 600, padding: "8px 18px", borderRadius: 8, zIndex: 10, whiteSpace: "nowrap" }}>
+            {toast.msg}
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${COLORS.border}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: COLORS.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: COLORS.accent }}>{athlete.name[0]}</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>{athlete.name}</div>
+                  <div style={{ fontSize: 11, background: COLORS.accentSoft, color: COLORS.accent, padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>選手ダッシュボード</div>
+                </div>
+                <div style={{ fontSize: 12, color: COLORS.muted }}>{athlete.sport} · {athlete.goal}</div>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.muted, fontSize: 14, padding: "4px 10px", cursor: "pointer" }}>✕</button>
+          </div>
+          {athlete.profile && (
+            <div style={{ fontSize: 12, color: COLORS.muted, lineHeight: 1.6, background: COLORS.surface, borderRadius: 8, padding: "8px 12px" }}>{athlete.profile}</div>
+          )}
+        </div>
+
+        {/* Period selector */}
+        <div style={{ padding: "10px 24px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: COLORS.muted, marginRight: 4 }}>分析期間</div>
+          {PERIODS.map(p => (
+            <button key={p.key} onClick={() => setPeriod(p.key)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${period === p.key ? COLORS.accent : COLORS.border}`, background: period === p.key ? COLORS.accentSoft : "transparent", color: period === p.key ? COLORS.accent : COLORS.muted, fontSize: 12, fontWeight: period === p.key ? 700 : 400, cursor: "pointer", transition: "all 0.15s" }}>
+              {p.label}
+            </button>
+          ))}
+          {!loading && <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>{sessions.length}件 · AI済 {aiCount}件</div>}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+
+          {/* Meta info bar */}
+          {metaInfo && displayMeta && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, padding: "8px 12px", background: COLORS.surface, borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: COLORS.muted }}>
+                生成：{formatDate(metaInfo.generatedAt)} · 更新：{formatDate(metaInfo.updatedAt)} · {metaInfo.periodLabel} {metaInfo.sessionCount}件
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setEditingMeta(p => !p)} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: editingMeta ? COLORS.accentSoft : "transparent", color: editingMeta ? COLORS.accent : COLORS.muted, fontSize: 11, cursor: "pointer" }}>
+                  {editingMeta ? "✓ 編集中（自動保存）" : "✏️ 編集"}
+                </button>
+                <button onClick={() => { setMetaDraft(null); handleGenerateMeta(); }} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>再生成</button>
+              </div>
+            </div>
+          )}
+
+          {/* Generate button */}
+          {!displayMeta && !metaLoading && (
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
+              <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 16, lineHeight: 1.7 }}>
+                {aiCount === 0
+                  ? "AI整理済みのセッションがありません。先にセッションのAI整理を実行してください。"
+                  : `期間内のAI整理済みセッション ${aiCount}件 をまとめて縦断分析します。`}
+              </div>
+              {aiCount > 0 && (
+                <button onClick={handleGenerateMeta} style={{ padding: "12px 28px", borderRadius: 10, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  ✨ 縦断分析を生成
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Loading */}
+          {metaLoading && (
+            <div style={{ textAlign: "center", padding: "48px 0" }}>
+              <div style={{ fontSize: 32, marginBottom: 16 }}>✨</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 8 }}>縦断分析を生成中...</div>
+              <div style={{ fontSize: 12, color: COLORS.muted }}>{aiCount}件のセッションデータを読み込んでいます</div>
+            </div>
+          )}
+
+          {/* Error */}
+          {metaError && !metaLoading && (
+            <div style={{ textAlign: "center", padding: "32px 0" }}>
+              <div style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>分析の生成に失敗しました</div>
+              <button onClick={handleGenerateMeta} style={{ padding: "8px 20px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>再試行</button>
+            </div>
+          )}
+
+          {/* Meta result */}
+          {displayMeta && !metaLoading && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {META_FIELDS.map(f => (
+                <MetaFieldCard
+                  key={f.key}
+                  field={f}
+                  value={metaDraft ? metaDraft[f.key] : displayMeta[f.key]}
+                  editing={editingMeta}
+                  onChange={v => handleMetaFieldChange(f.key, v)}
+                  collapsible={f.key === "next_phase"}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onReorder, onArchive }: {
   athletes: Athlete[]; selectedId: string | null;
-  onSelect: (id: string) => void; onAdd: () => void; onEdit: (a: Athlete) => void;
+  onSelect: (id: string) => void; onAdd: () => void; onEdit: (a: Athlete) => void; onDetail: (a: Athlete) => void;
   onReorder: (newOrder: Athlete[]) => void; onArchive: (a: Athlete) => void;
 }) {
   const [showArchived, setShowArchived] = useState(false);
@@ -271,7 +552,7 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onReorder, onA
   );
 }
 
-function SessionList({ athlete, sessions, selectedId, onSelect, onAdd }: { athlete: Athlete | undefined; sessions: Session[]; selectedId: string | null; onSelect: (id: string) => void; onAdd: () => void }) {
+function SessionList({ athlete, sessions, selectedId, onSelect, onAdd, onDetail }: { athlete: Athlete | undefined; sessions: Session[]; selectedId: string | null; onSelect: (id: string) => void; onAdd: () => void; onDetail: (a: Athlete) => void }) {
   if (!athlete) return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: COLORS.surface, borderRight: `1px solid ${COLORS.border}` }}>
       <div style={{ textAlign: "center", color: COLORS.muted }}><div style={{ fontSize: 32, marginBottom: 8 }}>👈</div><div style={{ fontSize: 13 }}>選手を選択してください</div></div>
@@ -280,7 +561,10 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd }: { athle
   return (
     <div style={{ width: 260, minWidth: 260, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>{athlete.name}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.text }}>{athlete.name}</div>
+          <button onClick={() => onDetail(athlete)} title="選手ダッシュボード" style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.muted, fontSize: 13, padding: "3px 8px", cursor: "pointer" }}>📊</button>
+        </div>
         <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 12 }}>{athlete.sport} · {athlete.goal}</div>
         <button onClick={onAdd} style={{ width: "100%", padding: "8px 12px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 16 }}>+</span> セッションを追加
@@ -424,6 +708,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [editingAthlete, setEditingAthlete] = useState<Athlete | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [detailAthlete, setDetailAthlete] = useState<Athlete | null>(null);
 
   useEffect(() => {
     async function loadAthletes() {
@@ -512,6 +797,17 @@ export default function Home() {
     setEditingAthlete(null);
   }
 
+  async function handleUpdateAnalysisById(sessionId: string, analysis: Analysis) {
+    await supabase.from("session_analyses").upsert({ session_id: sessionId, ...analysis, updated_at: new Date().toISOString() }, { onConflict: "session_id" });
+    setSessions(prev => {
+      const next = { ...prev };
+      for (const aid in next) {
+        next[aid] = next[aid].map(s => s.id === sessionId ? { ...s, analysis } : s);
+      }
+      return next;
+    });
+  }
+
   async function handleDeleteSession() {
     if (!editingSession || !selectedAthleteId) return;
     await supabase.from("sessions").delete().eq("id", editingSession.id);
@@ -554,14 +850,15 @@ export default function Home() {
         <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>MVP v0.1</div>
       </div>
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
-        <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} onAdd={() => setShowAddSession(true)} />
+        <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete} onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
+        <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} onAdd={() => setShowAddSession(true)} onDetail={setDetailAthlete} />
         <SessionDetail session={selectedSession} athlete={selectedAthlete} onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis} onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
       </div>
       {showAddAthlete && <AddAthleteModal onClose={() => setShowAddAthlete(false)} onAdd={handleAddAthlete} />}
       {showAddSession && selectedAthlete && <AddSessionModal athleteName={selectedAthlete.name} onClose={() => setShowAddSession(false)} onAdd={handleAddSession} />}
       {editingAthlete && <EditAthleteModal athlete={editingAthlete} onClose={() => setEditingAthlete(null)} onSave={handleEditAthlete} onDelete={handleDeleteAthlete} onArchive={handleArchiveAthlete} />}
       {editingSession && <EditSessionModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleEditSession} onDelete={handleDeleteSession} />}
+      {detailAthlete && <AthleteDetailModal athlete={detailAthlete} onClose={() => setDetailAthlete(null)} onUpdateAnalysis={handleUpdateAnalysisById} />}
     </div>
   );
 }
