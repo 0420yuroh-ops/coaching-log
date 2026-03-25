@@ -697,6 +697,58 @@ function AddSessionModal({ athleteName, onClose, onAdd }: { athleteName: string;
   );
 }
 
+type Coach = { id: string; name: string; service_name: string; email: string; };
+
+function CoachSettingsModal({ onClose, coach, onSave }: { onClose: () => void; coach: Coach | null; onSave: (c: Coach) => void }) {
+  const [name, setName] = useState(coach?.name || "");
+  const [serviceName, setServiceName] = useState(coach?.service_name || "");
+  const [email, setEmail] = useState(coach?.email || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      if (coach?.id) {
+        await supabase.from("coaches").update({ name, service_name: serviceName, email, updated_at: new Date().toISOString() }).eq("id", coach.id);
+        onSave({ ...coach, name, service_name: serviceName, email });
+      } else {
+        const { data } = await supabase.from("coaches").insert({ name, service_name: serviceName, email }).select().single();
+        if (data) onSave(data);
+      }
+      setSaved(true);
+      setTimeout(() => { setSaved(false); onClose(); }, 800);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 28, width: 420 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text, marginBottom: 6 }}>コーチ設定</div>
+        <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 20 }}>PDFレポートのヘッダーに表示されます</div>
+        {[
+          { label: "コーチ名 *", value: name, set: setName, ph: "山田 太郎" },
+          { label: "サービス名・団体名", value: serviceName, set: setServiceName, ph: "〇〇スポーツアカデミー" },
+          { label: "メールアドレス", value: email, set: setEmail, ph: "coach@example.com" },
+        ].map(f => (
+          <div key={f.label} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
+            <input value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
+              style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box" }} />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, cursor: "pointer" }}>キャンセル</button>
+          <button onClick={handleSave} disabled={saving || !name.trim()} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: saved ? COLORS.success : COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer", transition: "background 0.2s" }}>
+            {saved ? "✓ 保存しました" : saving ? "保存中..." : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [sessions, setSessions] = useState<SessionsMap>({});
@@ -709,6 +761,8 @@ export default function Home() {
   const [editingAthlete, setEditingAthlete] = useState<Athlete | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [detailAthlete, setDetailAthlete] = useState<Athlete | null>(null);
+  const [coach, setCoach] = useState<Coach | null>(null);
+  const [showCoachSettings, setShowCoachSettings] = useState(false);
 
   useEffect(() => {
     async function loadAthletes() {
@@ -716,7 +770,12 @@ export default function Home() {
       if (data && data.length > 0) { setAthletes(data); setSelectedAthleteId(data[0].id); }
       setLoading(false);
     }
+    async function loadCoach() {
+      const { data } = await supabase.from("coaches").select("*").limit(1).single();
+      if (data) setCoach(data);
+    }
     loadAthletes();
+    loadCoach();
   }, []);
 
   useEffect(() => {
@@ -847,7 +906,16 @@ export default function Home() {
         <div style={{ fontSize: 18 }}>🏅</div>
         <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.05em" }}>COACHING LOG</div>
         <div style={{ fontSize: 11, color: COLORS.muted, marginLeft: 4, paddingLeft: 12, borderLeft: `1px solid ${COLORS.border}` }}>スポーツメンタルコーチング · セッションログ管理</div>
-        <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>MVP v0.1</div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          {coach && (
+            <div style={{ fontSize: 11, color: COLORS.muted, textAlign: "right" }}>
+              <div style={{ color: COLORS.text, fontWeight: 600 }}>{coach.name}</div>
+              {coach.service_name && <div>{coach.service_name}</div>}
+            </div>
+          )}
+          <a href="/report" style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer", textDecoration: "none" }}>📄 レポート</a>
+          <button onClick={() => setShowCoachSettings(true)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>⚙️ 設定</button>
+        </div>
       </div>
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete} onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
@@ -859,6 +927,7 @@ export default function Home() {
       {editingAthlete && <EditAthleteModal athlete={editingAthlete} onClose={() => setEditingAthlete(null)} onSave={handleEditAthlete} onDelete={handleDeleteAthlete} onArchive={handleArchiveAthlete} />}
       {editingSession && <EditSessionModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleEditSession} onDelete={handleDeleteSession} />}
       {detailAthlete && <AthleteDetailModal athlete={detailAthlete} onClose={() => setDetailAthlete(null)} onUpdateAnalysis={handleUpdateAnalysisById} />}
+      {showCoachSettings && <CoachSettingsModal onClose={() => setShowCoachSettings(false)} coach={coach} onSave={setCoach} />}
     </div>
   );
 }
