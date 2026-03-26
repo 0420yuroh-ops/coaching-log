@@ -501,9 +501,7 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onRe
     <div style={{ width: 220, minWidth: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
         <div style={{ fontSize: 11, letterSpacing: "0.12em", color: COLORS.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 12 }}>Athletes</div>
-        <button onClick={onAdd} style={{ width: "100%", padding: "8px 12px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 16 }}>+</span> 選手を追加
-        </button>
+        <button onClick={onAdd} style={{ width: "100%", padding: "10px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
         {active.map(a => (
@@ -514,6 +512,18 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onRe
             onDrop={() => handleDrop(a.id)}
             onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}
             onClick={() => onSelect(a.id)}
+            onTouchStart={e => {
+              const timer = setTimeout(() => { onEdit(a); }, 600);
+              (e.currentTarget as HTMLElement).dataset.longPress = String(timer);
+            }}
+            onTouchEnd={e => {
+              const timer = Number((e.currentTarget as HTMLElement).dataset.longPress);
+              if (timer) clearTimeout(timer);
+            }}
+            onTouchMove={e => {
+              const timer = Number((e.currentTarget as HTMLElement).dataset.longPress);
+              if (timer) clearTimeout(timer);
+            }}
             style={{ padding: "10px 12px", borderRadius: 8, cursor: "grab", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : dragOverId === a.id ? COLORS.card : "transparent", border: `1px solid ${selectedId === a.id ? COLORS.accent : dragOverId === a.id ? COLORS.border : "transparent"}`, transition: "all 0.15s", opacity: draggingId === a.id ? 0.4 : 1, position: "relative" }}
             onMouseEnter={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "1"; }}
             onMouseLeave={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "0"; }}>
@@ -567,9 +577,7 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd, onDetail 
           <button onClick={() => onDetail(athlete)} title="選手ダッシュボード" style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.muted, fontSize: 13, padding: "3px 8px", cursor: "pointer" }}>📊</button>
         </div>
         <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 12 }}>{athlete.sport} · {athlete.goal}</div>
-        <button onClick={onAdd} style={{ width: "100%", padding: "8px 12px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 16 }}>+</span> セッションを追加
-        </button>
+        <button onClick={onAdd} style={{ width: "100%", padding: "10px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
         {sessions.length === 0 && <div style={{ textAlign: "center", padding: "32px 16px", color: COLORS.muted, fontSize: 13 }}>セッションがありません</div>}
@@ -745,16 +753,16 @@ function CoachSettingsModal({ onClose, coach, onSave }: { onClose: () => void; c
             {saved ? "✓ 保存しました" : saving ? "保存中..." : "保存"}
           </button>
         </div>
-        <div style={{ marginTop: 16, display: "flex", gap: 12, justifyContent: "center" }}>
-          <a href="/terms" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>利用規約</a>
-          <span style={{ fontSize: 11, color: COLORS.border }}>|</span>
-          <a href="/privacy" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>プライバシーポリシー</a>
-        </div>
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
           <button onClick={() => { supabase.auth.signOut(); window.location.href = "/login"; }}
             style={{ width: "100%", padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 13, cursor: "pointer" }}>
             ログアウト
           </button>
+          <div style={{ marginTop: 14, display: "flex", gap: 12, justifyContent: "center" }}>
+            <a href="/terms" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>利用規約</a>
+            <span style={{ fontSize: 11, color: COLORS.border }}>|</span>
+            <a href="/privacy" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>プライバシーポリシー</a>
+          </div>
         </div>
       </div>
     </div>
@@ -784,8 +792,12 @@ export default function Home() {
 
   useEffect(() => {
     async function loadAthletes() {
-      const { data } = await supabase.from("athletes").select("*").is("archived_at", null).order("created_at");
-      if (data && data.length > 0) { setAthletes(data); setSelectedAthleteId(data[0].id); }
+      const { data } = await supabase.from("athletes").select("*").order("sort_order").order("created_at");
+      if (data && data.length > 0) {
+        setAthletes(data);
+        const firstActive = data.find(a => !a.archived_at);
+        if (firstActive) setSelectedAthleteId(firstActive.id);
+      }
       setLoading(false);
     }
     async function loadCoach() {
@@ -956,7 +968,22 @@ export default function Home() {
       </div>
 
       {/* PC: 3カラム / スマホ: 1画面 */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}
+        className={`view-${mobileView}`}
+        onTouchStart={e => {
+          const touch = e.touches[0];
+          (e.currentTarget as HTMLElement).dataset.touchX = String(touch.clientX);
+        }}
+        onTouchEnd={e => {
+          const startX = Number((e.currentTarget as HTMLElement).dataset.touchX || 0);
+          const endX = e.changedTouches[0].clientX;
+          const diff = endX - startX;
+          if (diff > 60) {
+            if (mobileView === "detail") setMobileView("sessions");
+            else if (mobileView === "sessions") setMobileView("athletes");
+          }
+        }}
+      >
         {/* 左カラム（PC常時表示・スマホはathletes時のみ） */}
         <div className={`col-athletes ${mobileView !== "athletes" ? "mobile-hidden" : ""}`} style={{ display: "flex" }}>
           <Sidebar athletes={athletes} selectedId={selectedAthleteId}
@@ -988,13 +1015,31 @@ export default function Home() {
       <style>{`
         @media (max-width: 768px) {
           .mobile-hidden { display: none !important; }
-          .col-athletes, .col-sessions, .col-detail { width: 100vw !important; min-width: 100vw !important; }
+          .col-athletes, .col-sessions, .col-detail {
+            width: 100vw !important;
+            min-width: 100vw !important;
+            position: absolute !important;
+            top: 48px !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          }
           .col-detail { flex: 1 !important; }
           .mobile-back { display: flex; align-items: center; }
+          .col-athletes { transform: translateX(0); z-index: 1; }
+          .col-sessions { transform: translateX(100%); z-index: 2; }
+          .col-detail { transform: translateX(200%); z-index: 3; }
+          .view-sessions .col-athletes { transform: translateX(-30%); }
+          .view-sessions .col-sessions { transform: translateX(0); }
+          .view-sessions .col-detail { transform: translateX(100%); }
+          .view-detail .col-athletes { transform: translateX(-30%); }
+          .view-detail .col-sessions { transform: translateX(-30%); }
+          .view-detail .col-detail { transform: translateX(0); }
         }
         @media (min-width: 769px) {
           .mobile-back { display: none; }
           .mobile-hidden { display: flex !important; }
+          .col-athletes, .col-sessions, .col-detail { position: relative !important; top: auto !important; }
         }
       `}</style>
     </div>
