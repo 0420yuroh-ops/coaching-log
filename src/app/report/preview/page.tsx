@@ -62,7 +62,7 @@ export default function ReportPreviewPage() {
       </div>
 
       {/* レポート本文 */}
-      <div style={{ paddingTop: 52 }} dangerouslySetInnerHTML={{ __html: html }} />
+      <div style={{ paddingTop: 52, overflowY: "auto", minHeight: "100vh" }} dangerouslySetInnerHTML={{ __html: html }} />
 
       <style>{`
         @media print {
@@ -73,3 +73,4 @@ export default function ReportPreviewPage() {
     </div>
   );
 }
+
