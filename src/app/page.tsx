@@ -984,21 +984,21 @@ export default function Home() {
           }
         }}
       >
-        {/* 左カラム（PC常時表示・スマホはathletes時のみ） */}
-        <div className={`col-athletes ${mobileView !== "athletes" ? "mobile-hidden" : ""}`} style={{ display: "flex" }}>
+        {/* 左カラム */}
+        <div className="col-athletes" style={{ display: "flex" }}>
           <Sidebar athletes={athletes} selectedId={selectedAthleteId}
             onSelect={(id) => { handleSelectAthleteMobile(id); }}
             onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete}
             onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
         </div>
-        {/* 中カラム（PC常時表示・スマホはsessions時のみ） */}
-        <div className={`col-sessions ${mobileView !== "sessions" ? "mobile-hidden" : ""}`} style={{ display: "flex", flex: "none" }}>
+        {/* 中カラム */}
+        <div className="col-sessions" style={{ display: "flex", flex: "none" }}>
           <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId}
             onSelect={(id) => { handleSelectSessionMobile(id); }}
             onAdd={() => setShowAddSession(true)} onDetail={setDetailAthlete} />
         </div>
-        {/* 右カラム（PC常時表示・スマホはdetail時のみ） */}
-        <div className={`col-detail ${mobileView !== "detail" ? "mobile-hidden" : ""}`} style={{ display: "flex", flex: 1, minWidth: 0 }}>
+        {/* 右カラム */}
+        <div className="col-detail" style={{ display: "flex", flex: 1, minWidth: 0 }}>
           <SessionDetail session={selectedSession} athlete={selectedAthlete}
             onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis}
             onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
@@ -1014,32 +1014,39 @@ export default function Home() {
 
       <style>{`
         @media (max-width: 768px) {
-          .mobile-hidden { display: none !important; }
           .col-athletes, .col-sessions, .col-detail {
-            width: 100vw !important;
-            min-width: 100vw !important;
             position: absolute !important;
-            top: 48px !important;
+            top: 0 !important;
             bottom: 0 !important;
             left: 0 !important;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            width: 100vw !important;
+            min-width: 100vw !important;
+            max-width: 100vw !important;
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            will-change: transform;
+            background: inherit;
           }
-          .col-detail { flex: 1 !important; }
-          .mobile-back { display: flex; align-items: center; }
           .col-athletes { transform: translateX(0); z-index: 1; }
-          .col-sessions { transform: translateX(100%); z-index: 2; }
-          .col-detail { transform: translateX(200%); z-index: 3; }
-          .view-sessions .col-athletes { transform: translateX(-30%); }
+          .col-sessions { transform: translateX(100vw); z-index: 2; }
+          .col-detail   { transform: translateX(100vw); z-index: 3; }
+          .view-sessions .col-athletes { transform: translateX(-25vw); }
           .view-sessions .col-sessions { transform: translateX(0); }
-          .view-sessions .col-detail { transform: translateX(100%); }
-          .view-detail .col-athletes { transform: translateX(-30%); }
-          .view-detail .col-sessions { transform: translateX(-30%); }
-          .view-detail .col-detail { transform: translateX(0); }
+          .view-sessions .col-detail   { transform: translateX(100vw); }
+          .view-detail .col-athletes   { transform: translateX(-25vw); }
+          .view-detail .col-sessions   { transform: translateX(-25vw); }
+          .view-detail .col-detail     { transform: translateX(0); }
+          .mobile-back { display: flex !important; align-items: center; }
+          .edit-btn { display: none !important; }
         }
         @media (min-width: 769px) {
-          .mobile-back { display: none; }
-          .mobile-hidden { display: flex !important; }
-          .col-athletes, .col-sessions, .col-detail { position: relative !important; top: auto !important; }
+          .mobile-back { display: none !important; }
+          .col-athletes, .col-sessions, .col-detail {
+            position: relative !important;
+            top: auto !important;
+            width: auto !important;
+            min-width: auto !important;
+            transform: none !important;
+          }
         }
       `}</style>
     </div>
