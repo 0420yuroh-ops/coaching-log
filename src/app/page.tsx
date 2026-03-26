@@ -134,8 +134,8 @@ function EditAthleteModal({ athlete, onClose, onSave, onDelete, onArchive }: { a
           <button onClick={() => { if (name.trim()) { onSave({ name, sport, goal, profile }); onClose(); } }} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, cursor: "pointer" }}>保存</button>
         </div>
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button onClick={() => { onArchive(); onClose(); }} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>
-            {athlete.archived_at ? "📂 アーカイブから戻す" : "📁 アーカイブする"}
+          <button onClick={() => { onArchive(); onClose(); }} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 16, cursor: "pointer" }} title={athlete.archived_at ? "アーカイブから戻す" : "アーカイブする"}>
+            {athlete.archived_at ? "📂" : "📁"}
           </button>
           {!confirming ? (
             <button onClick={() => setConfirming(true)} title="削除" style={{ padding: "6px 8px", borderRadius: 8, border: "none", background: "transparent", color: COLORS.muted, fontSize: 14, cursor: "pointer", opacity: 0.5 }}>🗑️</button>
@@ -531,9 +531,9 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onRe
 
       {/* Archive toggle */}
       <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "8px" }}>
-        <button onClick={() => setShowArchived(p => !p)} style={{ width: "100%", padding: "8px 10px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: COLORS.muted, fontSize: 11, borderRadius: 6 }}>
-          <span>{showArchived ? "▲" : "▼"}</span>
-          アーカイブ {archived.length > 0 && `(${archived.length})`}
+        <button onClick={() => setShowArchived(p => !p)} title={`アーカイブ${archived.length > 0 ? ` (${archived.length})` : ""}`} style={{ width: "100%", padding: "8px 10px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: COLORS.muted, fontSize: 14, borderRadius: 6 }}>
+          <span>📁</span>
+          {archived.length > 0 && <span style={{ fontSize: 11 }}>{archived.length}</span>}
         </button>
         {showArchived && archived.map(a => (
           <div key={a.id} onClick={() => onSelect(a.id)} style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : "transparent", opacity: 0.6 }}
@@ -745,6 +745,12 @@ function CoachSettingsModal({ onClose, coach, onSave }: { onClose: () => void; c
             {saved ? "✓ 保存しました" : saving ? "保存中..." : "保存"}
           </button>
         </div>
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
+          <button onClick={() => { supabase.auth.signOut(); window.location.href = "/login"; }}
+            style={{ width: "100%", padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 13, cursor: "pointer" }}>
+            ログアウト
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -901,6 +907,19 @@ export default function Home() {
     if (data) { const newSession = { ...data, analysis: null }; setSessions(prev => ({ ...prev, [selectedAthleteId]: [newSession, ...(prev[selectedAthleteId] || [])] })); setSelectedSessionId(data.id); }
   }
 
+  // スマホ用の画面管理
+  const [mobileView, setMobileView] = useState<"athletes" | "sessions" | "detail">("athletes");
+
+  function handleSelectAthleteMobile(id: string) {
+    handleSelectAthlete(id);
+    setMobileView("sessions");
+  }
+
+  function handleSelectSessionMobile(id: string) {
+    setSelectedSessionId(id);
+    setMobileView("detail");
+  }
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: COLORS.bg, flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 28 }}>🏅</div>
@@ -910,33 +929,69 @@ export default function Home() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: COLORS.bg, fontFamily: "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif", color: COLORS.text }}>
-      <div style={{ height: 48, background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 10, flexShrink: 0 }}>
-        <div style={{ fontSize: 18 }}>🏅</div>
-        <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.05em" }}>COACHING LOG</div>
-        <div style={{ fontSize: 11, color: COLORS.muted, marginLeft: 4, paddingLeft: 12, borderLeft: `1px solid ${COLORS.border}` }}>スポーツメンタルコーチング · セッションログ管理</div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-          {coach && (
-            <div style={{ fontSize: 11, color: COLORS.muted, textAlign: "right" }}>
-              <div style={{ color: COLORS.text, fontWeight: 600 }}>{coach.name}</div>
-              {coach.service_name && <div>{coach.service_name}</div>}
-            </div>
+      {/* Header */}
+      <div style={{ height: 48, background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0 }}>
+        {/* スマホ用戻るボタン */}
+        <div className="mobile-back">
+          {mobileView === "sessions" && (
+            <button onClick={() => setMobileView("athletes")} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
           )}
-          <button onClick={() => setShowCoachSettings(true)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>⚙️ 設定</button>
-          <a href="/report" style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer", textDecoration: "none" }}>📄 レポート</a>
-          <button onClick={handleLogout} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>ログアウト</button>
+          {mobileView === "detail" && (
+            <button onClick={() => setMobileView("sessions")} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
+          )}
+        </div>
+        <div style={{ fontSize: 18 }}>🏅</div>
+        <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.05em" }}>
+          {mobileView === "sessions" && selectedAthlete ? selectedAthlete.name : "COACHING LOG"}
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <a href="/report" title="レポート作成" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 15, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>📄</a>
+          <button onClick={() => setShowCoachSettings(true)} title="設定" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⚙️</button>
         </div>
       </div>
+
+      {/* PC: 3カラム / スマホ: 1画面 */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <Sidebar athletes={athletes} selectedId={selectedAthleteId} onSelect={handleSelectAthlete} onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete} onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
-        <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} onAdd={() => setShowAddSession(true)} onDetail={setDetailAthlete} />
-        <SessionDetail session={selectedSession} athlete={selectedAthlete} onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis} onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
+        {/* 左カラム（PC常時表示・スマホはathletes時のみ） */}
+        <div className={`col-athletes ${mobileView !== "athletes" ? "mobile-hidden" : ""}`} style={{ display: "flex" }}>
+          <Sidebar athletes={athletes} selectedId={selectedAthleteId}
+            onSelect={(id) => { handleSelectAthleteMobile(id); }}
+            onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete}
+            onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
+        </div>
+        {/* 中カラム（PC常時表示・スマホはsessions時のみ） */}
+        <div className={`col-sessions ${mobileView !== "sessions" ? "mobile-hidden" : ""}`} style={{ display: "flex", flex: "none" }}>
+          <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId}
+            onSelect={(id) => { handleSelectSessionMobile(id); }}
+            onAdd={() => setShowAddSession(true)} onDetail={setDetailAthlete} />
+        </div>
+        {/* 右カラム（PC常時表示・スマホはdetail時のみ） */}
+        <div className={`col-detail ${mobileView !== "detail" ? "mobile-hidden" : ""}`} style={{ display: "flex", flex: 1, minWidth: 0 }}>
+          <SessionDetail session={selectedSession} athlete={selectedAthlete}
+            onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis}
+            onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
+        </div>
       </div>
+
       {showAddAthlete && <AddAthleteModal onClose={() => setShowAddAthlete(false)} onAdd={handleAddAthlete} />}
       {showAddSession && selectedAthlete && <AddSessionModal athleteName={selectedAthlete.name} onClose={() => setShowAddSession(false)} onAdd={handleAddSession} />}
       {editingAthlete && <EditAthleteModal athlete={editingAthlete} onClose={() => setEditingAthlete(null)} onSave={handleEditAthlete} onDelete={handleDeleteAthlete} onArchive={handleArchiveAthlete} />}
       {editingSession && <EditSessionModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleEditSession} onDelete={handleDeleteSession} />}
       {detailAthlete && <AthleteDetailModal athlete={detailAthlete} onClose={() => setDetailAthlete(null)} onUpdateAnalysis={handleUpdateAnalysisById} />}
       {showCoachSettings && <CoachSettingsModal onClose={() => setShowCoachSettings(false)} coach={coach} onSave={setCoach} />}
+
+      <style>{`
+        @media (max-width: 768px) {
+          .mobile-hidden { display: none !important; }
+          .col-athletes, .col-sessions, .col-detail { width: 100vw !important; min-width: 100vw !important; }
+          .col-detail { flex: 1 !important; }
+          .mobile-back { display: flex; align-items: center; }
+        }
+        @media (min-width: 769px) {
+          .mobile-back { display: none; }
+          .mobile-hidden { display: flex !important; }
+        }
+      `}</style>
     </div>
   );
 }
