@@ -160,17 +160,11 @@ export default function ReportPage() {
   const w = window.open("", "_blank");
   if (!w) return;
   w.document.write(html.replace("</body>",
-    `<script>
-      window.onload = function() {
-        window.print();
-        window.onafterprint = function() {
-          window.close();
-        };
-        setTimeout(function() {
-          window.close();
-        }, 1000);
-      };
-    <\/script></body>`
+    `<div style="position:fixed;bottom:24px;right:24px;display:flex;gap:12px;z-index:999">
+      <button onclick="window.print()" style="padding:12px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:sans-serif">印刷・PDF保存</button>
+      <button onclick="window.close()" style="padding:12px 24px;background:#444;color:#fff;border:none;border-radius:10px;font-size:15px;cursor:pointer;font-family:sans-serif">閉じる</button>
+    </div>
+    </body>`
   ));
   w.document.close();
 }
