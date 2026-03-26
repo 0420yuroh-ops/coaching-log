@@ -147,27 +147,11 @@ export default function ReportPage() {
   }
 
   function handlePrint() {
-  if (!report) return;
-  const athlete = athletes.find(a => a.id === selectedAthleteId);
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日`;
-  const sections = [
-    { label: "この期間の変化・成長", content: report.progress_summary },
-    { label: "現在の強み", content: report.current_strength },
-    { label: "今後のフォーカス", content: report.next_focus },
-  ];
-  const html = buildReportHtml();
-  const w = window.open("", "_blank");
-  if (!w) return;
-  w.document.write(html.replace("</body>",
-    `<div style="position:fixed;bottom:24px;right:24px;display:flex;gap:12px;z-index:999">
-      <button onclick="window.print()" style="padding:12px 24px;background:#4f8ef7;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:sans-serif">印刷・PDF保存</button>
-      <button onclick="window.close()" style="padding:12px 24px;background:#444;color:#fff;border:none;border-radius:10px;font-size:15px;cursor:pointer;font-family:sans-serif">閉じる</button>
-    </div>
-    </body>`
-  ));
-  w.document.close();
-}
+    if (!report) return;
+    const html = buildReportHtml();
+    sessionStorage.setItem("reportHtml", html);
+    window.location.href = "/report/preview";
+  }
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId);
 
