@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 const COLORS = {
   bg: "#1a1d23", surface: "#20242c", card: "#272b35",
@@ -21,6 +22,7 @@ type Report = {
 type Coach = { name: string; service_name: string; email: string; };
 
 export default function ReportPage() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
@@ -28,10 +30,27 @@ export default function ReportPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loadingAnalyses, setLoadingAnalyses] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<Report | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem("reportDraft");
+      return saved ? JSON.parse(saved) : null;
+    }
+    return null;
+  });
   const [coach, setCoach] = useState<Coach | null>(null);
   const [error, setError] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
+
+  // レポートがあればSTEP3から再開
+  useEffect(() => {
+    const saved = sessionStorage.getItem("reportDraft");
+    const savedAthleteId = sessionStorage.getItem("reportAthleteId");
+    if (saved && savedAthleteId) {
+      setReport(JSON.parse(saved));
+      setSelectedAthleteId(savedAthleteId);
+      setStep(3);
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -150,7 +169,9 @@ export default function ReportPage() {
     if (!report) return;
     const html = buildReportHtml();
     sessionStorage.setItem("reportHtml", html);
-    window.location.href = "/report/preview";
+    sessionStorage.setItem("reportDraft", JSON.stringify(report));
+    sessionStorage.setItem("reportAthleteId", selectedAthleteId);
+    router.push("/report/preview");
   }
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId);
@@ -165,14 +186,15 @@ export default function ReportPage() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", background: COLORS.bg, fontFamily: "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif", color: COLORS.text }}>
-      <div style={{ height: 48, background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", padding: "0 24px", gap: 12 }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: COLORS.bg, fontFamily: "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif", color: COLORS.text }}>
+      <div style={{ height: 48, background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", padding: "0 24px", gap: 12, flexShrink: 0 }}>
         <a href="/" style={{ fontSize: 18, textDecoration: "none" }}>🏅</a>
         <div style={{ fontWeight: 800, fontSize: 14 }}>COACHING LOG</div>
         <div style={{ fontSize: 11, color: COLORS.muted, paddingLeft: 12, borderLeft: `1px solid ${COLORS.border}` }}>PDFレポート作成</div>
         <a href="/" style={{ marginLeft: "auto", fontSize: 12, color: COLORS.muted, textDecoration: "none" }}>← メインに戻る</a>
       </div>
 
+      <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" as "touch" }}>
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px" }}>
         {/* Step indicator */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
@@ -258,7 +280,7 @@ export default function ReportPage() {
                 <div style={{ fontSize: 12, color: COLORS.muted, marginTop: 2 }}>{selectedAthlete?.name} · {selectedIds.size}件のセッションをもとに生成</div>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => { setStep(1); setReport(null); setError(""); }}
+                <button onClick={() => { setStep(1); setReport(null); setError(""); sessionStorage.removeItem("reportDraft"); sessionStorage.removeItem("reportAthleteId"); }}
                   style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 13, cursor: "pointer" }}>やり直す</button>
                 <button onClick={handlePrint}
                   style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>📄 PDF出力</button>
@@ -286,6 +308,7 @@ export default function ReportPage() {
             </button>
           </div>
         )}
+      </div>
       </div>
       <style>{`select option { background: #272b35; } textarea::placeholder { color: #4a5268; }`}</style>
     </div>
