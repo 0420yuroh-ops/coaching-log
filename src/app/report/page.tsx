@@ -88,24 +88,22 @@ export default function ReportPage() {
     finally { setGenerating(false); }
   }
 
-  function handlePrint() {
+  function buildReportHtml() {
     const athlete = athletes.find(a => a.id === selectedAthleteId);
     const today = new Date();
     const dateStr = `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日`;
-    const w = window.open("", "_blank");
-    if (!w || !report) return;
     const sections = [
-      { label: "この期間の変化・成長", content: report.progress_summary },
-      { label: "現在の強み", content: report.current_strength },
-      { label: "今後のフォーカス", content: report.next_focus },
+      { label: "この期間の変化・成長", content: report!.progress_summary },
+      { label: "現在の強み", content: report!.current_strength },
+      { label: "今後のフォーカス", content: report!.next_focus },
     ];
-    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+    return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
 <title>${athlete?.name}_メンタルコーチングレポート</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif; color: #1a1a2e; background: #fff; padding: 0; }
-  .page { max-width: 720px; margin: 0 auto; padding: 48px 48px; }
+  body { font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif; color: #1a1a2e; background: #fff; }
+  .page { max-width: 720px; margin: 0 auto; padding: 48px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; border-bottom: 2px solid #e8ecf8; margin-bottom: 32px; }
   .header-left .service { font-size: 13px; color: #4a5080; font-weight: 700; margin-bottom: 4px; }
   .header-left .coach { font-size: 12px; color: #7a82a8; }
@@ -118,10 +116,7 @@ export default function ReportPage() {
   .section-content { font-size: 14px; line-height: 1.85; color: #2a2a4a; }
   .closing { background: #f4f6ff; border-radius: 10px; padding: 18px 20px; font-size: 14px; line-height: 1.8; color: #2a2a4a; margin-top: 24px; }
   .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e8ecf8; display: flex; justify-content: space-between; font-size: 11px; color: #9a9ec0; }
-  @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 32px 40px; }
-  }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 32px 40px; } }
 </style></head><body>
 <div class="page">
   <div class="header">
@@ -134,23 +129,48 @@ export default function ReportPage() {
       ${coach?.email ? `<div>${coach.email}</div>` : ""}
     </div>
   </div>
-  <div class="title">${report.report_title}</div>
+  <div class="title">${report!.report_title}</div>
   <div class="athlete-name">${athlete?.name} さんへ</div>
-  <div class="intro">${report.intro_message}</div>
+  <div class="intro">${report!.intro_message}</div>
   ${sections.map(s => `
   <div class="section">
     <div class="section-label">${s.label}</div>
     <div class="section-content">${s.content.replace(/\n/g, "<br>")}</div>
   </div>`).join("")}
-  <div class="closing">${report.closing_message.replace(/\n/g, "<br>")}</div>
+  <div class="closing">${report!.closing_message.replace(/\n/g, "<br>")}</div>
   <div class="footer">
     <div>${coach?.name || ""} / ${coach?.service_name || ""}</div>
     <div>Coaching Log</div>
   </div>
 </div>
-<script>window.onload = function() { window.print(); }</script>
-</body></html>`);
-    w.document.close();
+</body></html>`;
+  }
+
+  function handlePrint() {
+    if (!report) return;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const html = buildReportHtml();
+    const athlete = athletes.find(a => a.id === selectedAthleteId);
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,"0")}${String(today.getDate()).padStart(2,"0")}`;
+    const fileName = `${athlete?.name || "report"}_メンタルコーチングレポート_${dateStr}.html`;
+
+    if (isMobile) {
+      // スマホ：HTMLファイルとしてダウンロード→共有可能
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // PC：印刷ダイアログ
+      const w = window.open("", "_blank");
+      if (!w) return;
+      w.document.write(html.replace("</body>", "<script>window.onload=function(){window.print()}<\/script></body>"));
+      w.document.close();
+    }
   }
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId);

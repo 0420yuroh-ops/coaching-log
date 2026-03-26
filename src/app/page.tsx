@@ -500,8 +500,10 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onRe
   return (
     <div style={{ width: 220, minWidth: 220, background: COLORS.surface, borderRight: `1px solid ${COLORS.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
-        <div style={{ fontSize: 11, letterSpacing: "0.12em", color: COLORS.muted, fontWeight: 600, textTransform: "uppercase", marginBottom: 12 }}>Athletes</div>
-        <button onClick={onAdd} style={{ width: "100%", padding: "10px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.12em", color: COLORS.muted, fontWeight: 600, textTransform: "uppercase" }}>Athletes</div>
+          <button onClick={onAdd} style={{ width: 32, height: 32, borderRadius: "50%", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>+</button>
+        </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
         {active.map(a => (
@@ -537,27 +539,32 @@ function Sidebar({ athletes, selectedId, onSelect, onAdd, onEdit, onDetail, onRe
             </div>
           </div>
         ))}
-      </div>
 
-      {/* Archive toggle */}
-      <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "8px" }}>
-        <button onClick={() => setShowArchived(p => !p)} title={`アーカイブ${archived.length > 0 ? ` (${archived.length})` : ""}`} style={{ width: "100%", padding: "8px 10px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: COLORS.muted, fontSize: 14, borderRadius: 6 }}>
-          <span>📁</span>
-          {archived.length > 0 && <span style={{ fontSize: 11 }}>{archived.length}</span>}
-        </button>
-        {showArchived && archived.map(a => (
-          <div key={a.id} onClick={() => onSelect(a.id)} style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : "transparent", opacity: 0.6 }}
-            onMouseEnter={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "1"; }}
-            onMouseLeave={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "0"; }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: COLORS.muted, flexShrink: 0 }}>{a.name[0]}</div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12, color: COLORS.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+        {/* アーカイブ：アクティブ選手の下に配置 */}
+        {archived.length > 0 && (
+          <div style={{ marginTop: 16, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
+            <button onClick={() => setShowArchived(p => !p)}
+              style={{ width: "100%", padding: "6px 10px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: COLORS.muted, fontSize: 12, borderRadius: 6 }}>
+              <span>📁</span>
+              <span>アーカイブ ({archived.length})</span>
+              <span style={{ marginLeft: "auto" }}>{showArchived ? "▲" : "▼"}</span>
+            </button>
+            {showArchived && archived.map(a => (
+              <div key={a.id} onClick={() => onSelect(a.id)}
+                style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: selectedId === a.id ? COLORS.accentSoft : "transparent", opacity: 0.6 }}
+                onMouseEnter={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "1"; }}
+                onMouseLeave={e => { const btn = e.currentTarget.querySelector(".edit-btn") as HTMLElement; if (btn) btn.style.opacity = "0"; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: COLORS.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: COLORS.muted, flexShrink: 0 }}>{a.name[0]}</div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: COLORS.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+                  </div>
+                  <button className="edit-btn" onClick={e => { e.stopPropagation(); onEdit(a); }} style={{ opacity: 0, background: "transparent", border: "none", cursor: "pointer", color: COLORS.muted, fontSize: 12, padding: "2px 4px", borderRadius: 4, transition: "opacity 0.15s", flexShrink: 0 }}>✏️</button>
+                </div>
               </div>
-              <button className="edit-btn" onClick={e => { e.stopPropagation(); onEdit(a); }} style={{ opacity: 0, background: "transparent", border: "none", cursor: "pointer", color: COLORS.muted, fontSize: 12, padding: "2px 4px", borderRadius: 4, transition: "opacity 0.15s", flexShrink: 0 }}>✏️</button>
-            </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -574,10 +581,12 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd, onDetail 
       <div style={{ padding: "20px 16px 12px", borderBottom: `1px solid ${COLORS.border}` }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: COLORS.text }}>{athlete.name}</div>
-          <button onClick={() => onDetail(athlete)} title="選手ダッシュボード" style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.muted, fontSize: 13, padding: "3px 8px", cursor: "pointer" }}>📊</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => onDetail(athlete)} title="選手ダッシュボード" style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.muted, fontSize: 13, padding: "3px 8px", cursor: "pointer" }}>📊</button>
+            <button onClick={onAdd} style={{ width: 32, height: 32, borderRadius: "50%", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>+</button>
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 12 }}>{athlete.sport} · {athlete.goal}</div>
-        <button onClick={onAdd} style={{ width: "100%", padding: "10px", background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 20, fontWeight: 300, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 4 }}>{athlete.sport} · {athlete.goal}</div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
         {sessions.length === 0 && <div style={{ textAlign: "center", padding: "32px 16px", color: COLORS.muted, fontSize: 13 }}>セッションがありません</div>}
