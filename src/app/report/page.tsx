@@ -147,31 +147,33 @@ export default function ReportPage() {
   }
 
   function handlePrint() {
-    if (!report) return;
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const html = buildReportHtml();
-    const athlete = athletes.find(a => a.id === selectedAthleteId);
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,"0")}${String(today.getDate()).padStart(2,"0")}`;
-    const fileName = `${athlete?.name || "report"}_メンタルコーチングレポート_${dateStr}.html`;
-
-    if (isMobile) {
-      // スマホ：HTMLファイルとしてダウンロード→共有可能
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else {
-      // PC：印刷ダイアログ
-      const w = window.open("", "_blank");
-      if (!w) return;
-      w.document.write(html.replace("</body>", "<script>window.onload=function(){window.print()}<\/script></body>"));
-      w.document.close();
-    }
-  }
+  if (!report) return;
+  const athlete = athletes.find(a => a.id === selectedAthleteId);
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日`;
+  const sections = [
+    { label: "この期間の変化・成長", content: report.progress_summary },
+    { label: "現在の強み", content: report.current_strength },
+    { label: "今後のフォーカス", content: report.next_focus },
+  ];
+  const html = buildReportHtml();
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html.replace("</body>",
+    `<script>
+      window.onload = function() {
+        window.print();
+        window.onafterprint = function() {
+          window.close();
+        };
+        setTimeout(function() {
+          window.close();
+        }, 1000);
+      };
+    <\/script></body>`
+  ));
+  w.document.close();
+}
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId);
 
