@@ -745,6 +745,11 @@ function CoachSettingsModal({ onClose, coach, onSave }: { onClose: () => void; c
             {saved ? "✓ 保存しました" : saving ? "保存中..." : "保存"}
           </button>
         </div>
+        <div style={{ marginTop: 16, display: "flex", gap: 12, justifyContent: "center" }}>
+          <a href="/terms" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>利用規約</a>
+          <span style={{ fontSize: 11, color: COLORS.border }}>|</span>
+          <a href="/privacy" target="_blank" style={{ fontSize: 11, color: COLORS.muted, textDecoration: "none" }}>プライバシーポリシー</a>
+        </div>
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
           <button onClick={() => { supabase.auth.signOut(); window.location.href = "/login"; }}
             style={{ width: "100%", padding: "10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 13, cursor: "pointer" }}>
