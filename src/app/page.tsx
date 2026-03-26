@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 const COLORS = {
   bg: "#1a1d23",
@@ -763,6 +764,12 @@ export default function Home() {
   const [detailAthlete, setDetailAthlete] = useState<Athlete | null>(null);
   const [coach, setCoach] = useState<Coach | null>(null);
   const [showCoachSettings, setShowCoachSettings] = useState(false);
+  const router = useRouter();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }
 
   useEffect(() => {
     async function loadAthletes() {
@@ -826,7 +833,8 @@ export default function Home() {
   }
 
   async function handleAddAthlete({ name, sport, goal }: { name: string; sport: string; goal: string }) {
-    const { data } = await supabase.from("athletes").insert({ name, sport, goal, notes: "" }).select().single();
+    if (!coach?.id) return;
+    const { data } = await supabase.from("athletes").insert({ name, sport, goal, notes: "", coach_id: coach.id }).select().single();
     if (data) { setAthletes(prev => [...prev, data]); setSessions(prev => ({ ...prev, [data.id]: [] })); setSelectedAthleteId(data.id); setSelectedSessionId(null); }
   }
 
@@ -888,8 +896,8 @@ export default function Home() {
   }
 
   async function handleAddSession({ title, date }: { title: string; date: string }) {
-    if (!selectedAthleteId) return;
-    const { data } = await supabase.from("sessions").insert({ athlete_id: selectedAthleteId, title, session_date: date, raw_note: "", ai_status: "none" }).select().single();
+    if (!selectedAthleteId || !coach?.id) return;
+    const { data } = await supabase.from("sessions").insert({ athlete_id: selectedAthleteId, title, session_date: date, raw_note: "", ai_status: "none", coach_id: coach.id }).select().single();
     if (data) { const newSession = { ...data, analysis: null }; setSessions(prev => ({ ...prev, [selectedAthleteId]: [newSession, ...(prev[selectedAthleteId] || [])] })); setSelectedSessionId(data.id); }
   }
 
@@ -913,8 +921,9 @@ export default function Home() {
               {coach.service_name && <div>{coach.service_name}</div>}
             </div>
           )}
-          <a href="/report" style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer", textDecoration: "none" }}>📄 レポート</a>
           <button onClick={() => setShowCoachSettings(true)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>⚙️ 設定</button>
+          <a href="/report" style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer", textDecoration: "none" }}>📄 レポート</a>
+          <button onClick={handleLogout} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>ログアウト</button>
         </div>
       </div>
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
