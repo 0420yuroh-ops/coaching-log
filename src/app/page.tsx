@@ -58,6 +58,7 @@ function EditableField({ value, onChange, singleLine = false, color }: { value: 
 
 function AnalysisResult({ analysis, onUpdate }: { analysis: Analysis; onUpdate: (a: Analysis) => void }) {
   const [openDeep, setOpenDeep] = useState(false);
+
   const display = [
     { key: "summary", label: "セッション要約", icon: "📋", color: "#5b8def", single: false },
     { key: "theme", label: "今回のテーマ", icon: "🎯", color: "#9b7de8", single: true },

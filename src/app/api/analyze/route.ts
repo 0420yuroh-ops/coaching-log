@@ -37,7 +37,7 @@ JSONのみ出力してください（前置き・説明不要）：
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
+      max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     });
 
