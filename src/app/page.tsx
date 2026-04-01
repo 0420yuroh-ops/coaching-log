@@ -5,16 +5,16 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 
 const COLORS = {
-  bg: "#1a1d23",
-  surface: "#20242c",
-  card: "#272b35",
-  border: "#2e3340",
-  accent: "#4f8ef7",
-  accentSoft: "#1e3460",
-  text: "#dde1ea",
-  muted: "#7a8499",
-  success: "#34c77b",
-  warning: "#f5a623",
+  bg: "#f5f5f7",
+  surface: "#ffffff",
+  card: "#f9f9fb",
+  border: "#e0e0e5",
+  accent: "#2563eb",
+  accentSoft: "#eff6ff",
+  text: "#1a1a2e",
+  muted: "#6b7280",
+  success: "#16a34a",
+  warning: "#d97706",
 };
 
 type Analysis = {
@@ -168,7 +168,7 @@ function EditSessionModal({ session, onClose, onSave, onDelete }: { session: Ses
           <div key={f.label} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
             <input type={f.type} value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph}
-              style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", colorScheme: "dark" }} />
+              style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", colorScheme: "light" }} />
           </div>
         ))}
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
@@ -232,10 +232,13 @@ function MetaFieldCard({ field, value, editing, onChange, collapsible }: {
   );
 }
 
-function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
-  athlete: Athlete; onClose: () => void;
+function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis }: {
+  athlete: Athlete;
+  coachId: string;
+  onShowSession: () => void;
   onUpdateAnalysis: (sessionId: string, analysis: Analysis) => Promise<void>;
 }) {
+  const [activeTab, setActiveTab] = useState<"analysis" | "overview">("overview");
   const [period, setPeriod] = useState<PeriodKey>("3months");
   const [sessions, setSessions] = useState<AthleteDetailSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -247,6 +250,15 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
   const [metaDraft, setMetaDraft] = useState<MetaAnalysis | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Contract & Calendar state
+  const [contract, setContract] = useState<{ id?: string; start_date: string; end_date: string; total_sessions: number } | null>(null);
+  const [editingContract, setEditingContract] = useState(false);
+  const [contractDraft, setContractDraft] = useState<{ start_date: string; end_date: string; total_sessions: number } | null>(null);
+  const [events, setEvents] = useState<{ id: string; event_date: string; title: string; status: string }[]>([]);
+  const [calMonth, setCalMonth] = useState(new Date());
+  const [addingEvent, setAddingEvent] = useState<string | null>(null);
+  const [newEventTitle, setNewEventTitle] = useState("");
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -275,15 +287,12 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
       if (period === "recent3") query = supabase.from("sessions").select("*").eq("athlete_id", athlete.id).order("session_date", { ascending: false }).limit(3);
       else if (period === "1month") query = query.gte("session_date", new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]);
       else if (period === "3months") query = query.gte("session_date", new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]);
-
       const { data: sessionData } = await query;
       if (!sessionData) { setLoading(false); return; }
-
       const ids = sessionData.map(s => s.id);
       const { data: analysisData } = ids.length > 0
         ? await supabase.from("session_analyses").select("*").in("session_id", ids)
         : { data: [] };
-
       const merged: AthleteDetailSession[] = sessionData.map(s => ({
         ...s, analysis: analysisData?.find((a: { session_id: string }) => a.session_id === s.id) || null,
       }));
@@ -293,11 +302,53 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
   }
 
   async function fetchSavedMeta() {
-    const { data } = await supabase.from("longitudinal_analyses").select("*").eq("athlete_id", athlete.id).single();
+    const { data } = await supabase.from("longitudinal_analyses").select("*").eq("athlete_id", athlete.id).maybeSingle();
     if (data) {
       setMeta({ cognition_change: data.cognition_change, emotion_trend: data.emotion_trend, recurring_themes: data.recurring_themes, growth_points: data.growth_points, next_phase: data.next_phase });
       setMetaInfo({ generatedAt: data.generated_at, updatedAt: data.updated_at, periodLabel: data.period, sessionCount: data.session_count });
     }
+  }
+
+  async function fetchContract() {
+    const { data } = await supabase.from("contracts").select("*").eq("athlete_id", athlete.id).maybeSingle();
+    if (data) setContract(data);
+  }
+
+  async function fetchEvents() {
+    const { data } = await supabase.from("schedule_events").select("*").eq("athlete_id", athlete.id).order("event_date");
+    if (data) setEvents(data);
+  }
+
+  async function handleSaveContract() {
+    if (!contractDraft) return;
+    if (contract?.id) {
+      await supabase.from("contracts").update({ ...contractDraft, updated_at: new Date().toISOString() }).eq("id", contract.id);
+      setContract({ ...contract, ...contractDraft });
+    } else {
+      const { data } = await supabase.from("contracts").insert({ athlete_id: athlete.id, ...contractDraft }).select().single();
+      if (data) setContract(data);
+    }
+    setEditingContract(false);
+    showToast("契約情報を保存しました", true);
+  }
+
+  async function handleAddEvent(date: string) {
+    if (!newEventTitle.trim()) return;
+    const { data } = await supabase.from("schedule_events").insert({ athlete_id: athlete.id, event_date: date, title: newEventTitle, status: "planned" }).select().single();
+    if (data) setEvents(prev => [...prev, data]);
+    setAddingEvent(null);
+    setNewEventTitle("");
+  }
+
+  async function handleToggleEvent(event: { id: string; status: string }) {
+    const newStatus = event.status === "planned" ? "done" : "planned";
+    await supabase.from("schedule_events").update({ status: newStatus }).eq("id", event.id);
+    setEvents(prev => prev.map(e => e.id === event.id ? { ...e, status: newStatus } : e));
+  }
+
+  async function handleDeleteEvent(id: string) {
+    await supabase.from("schedule_events").delete().eq("id", id);
+    setEvents(prev => prev.filter(e => e.id !== id));
   }
 
   async function handleGenerateMeta() {
@@ -316,6 +367,7 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
         const periodLabel = PERIODS.find(p => p.key === period)?.label || period;
         await supabase.from("longitudinal_analyses").upsert({
           athlete_id: athlete.id, ...data.meta,
+          coach_id: coachId,
           period: periodLabel, session_count: aiSessions.length,
           generated_at: now, updated_at: now,
         }, { onConflict: "athlete_id" });
@@ -330,6 +382,7 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
     const now = new Date().toISOString();
     await supabase.from("longitudinal_analyses").upsert({
       athlete_id: athlete.id, ...draft,
+      coach_id: coachId,
       period: metaInfo?.periodLabel || "", session_count: metaInfo?.sessionCount || 0,
       generated_at: metaInfo?.generatedAt || now, updated_at: now,
     }, { onConflict: "athlete_id" });
@@ -345,128 +398,300 @@ function AthleteDetailModal({ athlete, onClose, onUpdateAnalysis }: {
     saveTimerRef.current = setTimeout(() => autoSaveMeta(updated), 1500);
   }
 
-  useEffect(() => { fetchSessions(); }, [period]);
-  useEffect(() => { fetchSavedMeta(); }, []);
+  useEffect(() => { fetchSessions(); }, [period, athlete.id]);
+  useEffect(() => {
+    setMeta(null);
+    setMetaInfo(null);
+    setMetaDraft(null);
+    fetchSavedMeta();
+    fetchContract();
+    fetchEvents();
+  }, [athlete.id]);
 
   const aiCount = sessions.filter(s => s.analysis).length;
+  const displayMeta = metaDraft || meta;
 
   function formatDate(iso: string) {
     const d = new Date(iso);
     return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   }
 
-  const displayMeta = metaDraft || meta;
+  // Calendar helpers
+  function getDaysInMonth(year: number, month: number) { return new Date(year, month + 1, 0).getDate(); }
+  function getFirstDayOfWeek(year: number, month: number) { return new Date(year, month, 1).getDay(); }
+  function getEventsForDate(dateStr: string) { return events.filter(e => e.event_date === dateStr); }
+
+  // Contract progress
+  const sessionsDone = events.filter(e => e.status === "done").length;
+  const totalSessions = contract?.total_sessions || 0;
+  const progress = totalSessions > 0 ? Math.min(Math.round((sessionsDone / totalSessions) * 100), 100) : 0;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 150, padding: 20 }}>
-      <div style={{ background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 16, width: "100%", maxWidth: 680, maxHeight: "90vh", display: "flex", flexDirection: "column", position: "relative" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: COLORS.bg, fontFamily: "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif", color: COLORS.text }}>
 
-        {/* Toast */}
-        {toast && (
-          <div style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.ok ? "#0f2a1a" : "#2a0f0f", border: `1px solid ${toast.ok ? COLORS.success : "#ef4444"}`, color: toast.ok ? COLORS.success : "#ef4444", fontSize: 12, fontWeight: 600, padding: "8px 18px", borderRadius: 8, zIndex: 10, whiteSpace: "nowrap" }}>
-            {toast.msg}
-          </div>
-        )}
-
-        {/* Header */}
-        <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${COLORS.border}`, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: COLORS.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: COLORS.accent }}>{athlete.name[0]}</div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>{athlete.name}</div>
-                  <div style={{ fontSize: 11, background: COLORS.accentSoft, color: COLORS.accent, padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>選手ダッシュボード</div>
-                </div>
-                <div style={{ fontSize: 12, color: COLORS.muted }}>{athlete.sport} · {athlete.goal}</div>
-              </div>
-            </div>
-            <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.muted, fontSize: 14, padding: "4px 10px", cursor: "pointer" }}>✕</button>
-          </div>
-          {athlete.profile && (
-            <div style={{ fontSize: 12, color: COLORS.muted, lineHeight: 1.6, background: COLORS.surface, borderRadius: 8, padding: "8px 12px" }}>{athlete.profile}</div>
-          )}
+      {toast && (
+        <div style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", background: toast.ok ? "#0f2a1a" : "#2a0f0f", border: `1px solid ${toast.ok ? COLORS.success : "#ef4444"}`, color: toast.ok ? COLORS.success : "#ef4444", fontSize: 12, fontWeight: 600, padding: "8px 18px", borderRadius: 8, zIndex: 10, whiteSpace: "nowrap" }}>
+          {toast.msg}
         </div>
+      )}
 
-        {/* Period selector */}
-        <div style={{ padding: "10px 24px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <div style={{ fontSize: 11, color: COLORS.muted, marginRight: 4 }}>分析期間</div>
-          {PERIODS.map(p => (
-            <button key={p.key} onClick={() => setPeriod(p.key)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${period === p.key ? COLORS.accent : COLORS.border}`, background: period === p.key ? COLORS.accentSoft : "transparent", color: period === p.key ? COLORS.accent : COLORS.muted, fontSize: 12, fontWeight: period === p.key ? 700 : 400, cursor: "pointer", transition: "all 0.15s" }}>
-              {p.label}
+      {/* Header */}
+      <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${COLORS.border}`, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: COLORS.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: COLORS.accent }}>{athlete.name[0]}</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text }}>{athlete.name}</div>
+              <div style={{ fontSize: 11, color: COLORS.muted }}>{athlete.sport} · {athlete.goal}</div>
+            </div>
+          </div>
+          <button onClick={onShowSession}
+            style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>
+            📝 セッション
+          </button>
+        </div>
+        {athlete.profile && (
+          <div style={{ fontSize: 11, color: COLORS.muted, lineHeight: 1.6, background: COLORS.surface, borderRadius: 8, padding: "6px 10px" }}>{athlete.profile}</div>
+        )}
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, marginTop: 10 }}>
+          {[{ key: "overview", label: "概要" }, { key: "analysis", label: "縦断分析" }].map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key as "analysis" | "overview")}
+              style={{ padding: "5px 14px", borderRadius: 8, border: `1px solid ${activeTab === t.key ? COLORS.accent : COLORS.border}`, background: activeTab === t.key ? COLORS.accentSoft : "transparent", color: activeTab === t.key ? COLORS.accent : COLORS.muted, fontSize: 12, fontWeight: activeTab === t.key ? 700 : 400, cursor: "pointer" }}>
+              {t.label}
             </button>
           ))}
-          {!loading && <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>{sessions.length}件 · AI済 {aiCount}件</div>}
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-
-          {/* Meta info bar */}
-          {metaInfo && displayMeta && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, padding: "8px 12px", background: COLORS.surface, borderRadius: 8 }}>
-              <div style={{ fontSize: 11, color: COLORS.muted }}>
-                生成：{formatDate(metaInfo.generatedAt)} · 更新：{formatDate(metaInfo.updatedAt)} · {metaInfo.periodLabel} {metaInfo.sessionCount}件
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setEditingMeta(p => !p)} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: editingMeta ? COLORS.accentSoft : "transparent", color: editingMeta ? COLORS.accent : COLORS.muted, fontSize: 11, cursor: "pointer" }}>
-                  {editingMeta ? "✓ 編集中（自動保存）" : "✏️ 編集"}
-                </button>
-                <button onClick={() => { setMetaDraft(null); handleGenerateMeta(); }} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>再生成</button>
-              </div>
-            </div>
-          )}
-
-          {/* Generate button */}
-          {!displayMeta && !metaLoading && (
-            <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 16, lineHeight: 1.7 }}>
-                {aiCount === 0
-                  ? "AI整理済みのセッションがありません。先にセッションのAI整理を実行してください。"
-                  : `期間内のAI整理済みセッション ${aiCount}件 をまとめて縦断分析します。`}
-              </div>
-              {aiCount > 0 && (
-                <button onClick={handleGenerateMeta} style={{ padding: "12px 28px", borderRadius: 10, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                  ✨ 縦断分析を生成
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Loading */}
-          {metaLoading && (
-            <div style={{ textAlign: "center", padding: "48px 0" }}>
-              <div style={{ fontSize: 32, marginBottom: 16 }}>✨</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 8 }}>縦断分析を生成中...</div>
-              <div style={{ fontSize: 12, color: COLORS.muted }}>{aiCount}件のセッションデータを読み込んでいます</div>
-            </div>
-          )}
-
-          {/* Error */}
-          {metaError && !metaLoading && (
-            <div style={{ textAlign: "center", padding: "32px 0" }}>
-              <div style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>分析の生成に失敗しました</div>
-              <button onClick={handleGenerateMeta} style={{ padding: "8px 20px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>再試行</button>
-            </div>
-          )}
-
-          {/* Meta result */}
-          {displayMeta && !metaLoading && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {META_FIELDS.map(f => (
-                <MetaFieldCard
-                  key={f.key}
-                  field={f}
-                  value={metaDraft ? metaDraft[f.key] : displayMeta[f.key]}
-                  editing={editingMeta}
-                  onChange={v => handleMetaFieldChange(f.key, v)}
-                  collapsible={f.key === "next_phase"}
-                />
-              ))}
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+
+          {/* ===== 概要タブ ===== */}
+          {activeTab === "overview" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+              {/* 契約バー */}
+              <div style={{ background: COLORS.surface, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 22, fontWeight: 700, color: COLORS.text }}>{sessionsDone}<span style={{ fontSize: 12, color: COLORS.muted, fontWeight: 400 }}>/{totalSessions || "—"}</span></span>
+                    {totalSessions > 0 && <span style={{ fontSize: 12, color: COLORS.muted }}>残{totalSessions - sessionsDone}回</span>}
+                  </div>
+                  <button onClick={() => { setEditingContract(p => !p); setContractDraft(contract ? { start_date: contract.start_date, end_date: contract.end_date, total_sessions: contract.total_sessions } : { start_date: "", end_date: "", total_sessions: 10 }); }}
+                    style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>
+                    {editingContract ? "✕" : "✏️"}
+                  </button>
+                </div>
+
+                {editingContract && contractDraft && (
+                  <div style={{ background: COLORS.card, borderRadius: 8, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 4 }}>開始日</div>
+                        <input type="date" value={contractDraft.start_date} onChange={e => setContractDraft(p => p ? { ...p, start_date: e.target.value } : p)}
+                          style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box", colorScheme: "light" }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 4 }}>終了日</div>
+                        <input type="date" value={contractDraft.end_date} onChange={e => setContractDraft(p => p ? { ...p, end_date: e.target.value } : p)}
+                          style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box", colorScheme: "light" }} />
+                      </div>
+                      <div style={{ width: 80 }}>
+                        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 4 }}>総回数</div>
+                        <input type="number" value={contractDraft.total_sessions} min={1} max={100} onChange={e => setContractDraft(p => p ? { ...p, total_sessions: Number(e.target.value) } : p)}
+                          style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box" }} />
+                      </div>
+                    </div>
+                    <button onClick={handleSaveContract} style={{ padding: "8px", borderRadius: 8, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>保存</button>
+                  </div>
+                )}
+
+                {/* プログレスバー */}
+                {totalSessions > 0 && (
+                  <>
+                    <div style={{ height: 5, background: COLORS.card, borderRadius: 3, marginBottom: 10, overflow: "hidden" }}>
+                      <div style={{ width: `${progress}%`, height: "100%", background: COLORS.accent, borderRadius: 3, transition: "width 0.3s" }} />
+                    </div>
+                    {/* ドット */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {Array.from({ length: totalSessions }).map((_, i) => (
+                        <div key={i} title={`${i + 1}回目`}
+                          style={{ width: 10, height: 10, borderRadius: "50%", background: i < sessionsDone ? COLORS.accent : "transparent", border: `1.5px solid ${i < sessionsDone ? COLORS.accent : COLORS.border}`, cursor: "default" }} />
+                      ))}
+                    </div>
+                    {/* 期間表示 */}
+                    {contract?.start_date && (
+                      <div style={{ marginTop: 8, fontSize: 11, color: COLORS.muted }}>
+                        {contract.start_date} 〜 {contract.end_date}
+                      </div>
+                    )}
+                  </>
+                )}
+                {!contract && !editingContract && (
+                  <div style={{ textAlign: "center", padding: "12px 0", fontSize: 12, color: COLORS.muted }}>
+                    ✏️ 右上のボタンで契約情報を設定してください
+                  </div>
+                )}
+              </div>
+
+              {/* カレンダー */}
+              <div style={{ background: COLORS.surface, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <button onClick={() => setCalMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                    style={{ background: "transparent", border: "none", color: COLORS.muted, fontSize: 18, cursor: "pointer" }}>‹</button>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.text }}>{calMonth.getFullYear()}年{calMonth.getMonth() + 1}月</span>
+                  <button onClick={() => setCalMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                    style={{ background: "transparent", border: "none", color: COLORS.muted, fontSize: 18, cursor: "pointer" }}>›</button>
+                </div>
+
+                {/* 曜日ヘッダー */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", textAlign: "center", marginBottom: 4 }}>
+                  {["日","月","火","水","木","金","土"].map(d => (
+                    <div key={d} style={{ fontSize: 10, color: COLORS.muted, padding: "2px 0" }}>{d}</div>
+                  ))}
+                </div>
+
+                {/* 日付グリッド */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                  {Array.from({ length: getFirstDayOfWeek(calMonth.getFullYear(), calMonth.getMonth()) }).map((_, i) => (
+                    <div key={`empty-${i}`} />
+                  ))}
+                  {Array.from({ length: getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth()) }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const dayEvents = getEventsForDate(dateStr);
+                    const today = new Date().toISOString().split("T")[0];
+                    const isToday = dateStr === today;
+                    return (
+                      <div key={day} onClick={() => { setAddingEvent(dateStr); setNewEventTitle(""); }}
+                        style={{ textAlign: "center", padding: "4px 2px", borderRadius: 6, cursor: "pointer", background: isToday ? COLORS.accentSoft : "transparent", border: isToday ? `1px solid ${COLORS.accent}` : "1px solid transparent" }}>
+                        <div style={{ fontSize: 11, color: isToday ? COLORS.accent : COLORS.text, fontWeight: isToday ? 700 : 400 }}>{day}</div>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 2, flexWrap: "wrap", marginTop: 2 }}>
+                          {dayEvents.map(ev => (
+                            <div key={ev.id}
+                              onClick={e => { e.stopPropagation(); handleToggleEvent(ev); }}
+                              onContextMenu={e => { e.preventDefault(); handleDeleteEvent(ev.id); }}
+                              title={`${ev.title}（${ev.status === "done" ? "実施済み" : "予定"}）長押しで削除`}
+                              style={{ width: 5, height: 5, borderRadius: "50%", background: ev.status === "done" ? COLORS.accent : COLORS.warning, cursor: "pointer" }} />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 予定追加フォーム */}
+                {addingEvent && (
+                  <div style={{ marginTop: 12, background: COLORS.card, borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 6 }}>{addingEvent} に予定を追加</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)}
+                        placeholder="例：セッション・試合・練習"
+                        onKeyDown={e => e.key === "Enter" && handleAddEvent(addingEvent)}
+                        style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 10px", outline: "none" }} />
+                      <button onClick={() => handleAddEvent(addingEvent)}
+                        style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: COLORS.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>追加</button>
+                      <button onClick={() => setAddingEvent(null)}
+                        style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>✕</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 凡例 */}
+                <div style={{ display: "flex", gap: 12, marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.border}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: COLORS.muted }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.accent }} />実施済み（タップで切替）
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: COLORS.muted }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: COLORS.warning }} />予定
+                  </div>
+                </div>
+              </div>
+
+              {/* 現在の状況 */}
+              <div style={{ background: COLORS.surface, borderRadius: 12, padding: 16, border: `1px solid ${COLORS.border}` }}>
+                <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 10, fontWeight: 600 }}>現在の状況</div>
+                {displayMeta ? (
+                  <div>
+                    <div style={{ fontSize: 13, color: COLORS.text, lineHeight: 1.7, marginBottom: 10 }}>{displayMeta.growth_points}</div>
+                    <div style={{ fontSize: 12, color: COLORS.muted, lineHeight: 1.7, borderTop: `1px solid ${COLORS.border}`, paddingTop: 8 }}>
+                      <span style={{ color: COLORS.accent }}>課題：</span>{displayMeta.recurring_themes}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: COLORS.muted }}>縦断分析タブで分析を生成すると表示されます</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ===== 縦断分析タブ ===== */}
+          {activeTab === "analysis" && (
+            <>
+              {/* Period selector */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: COLORS.muted, marginRight: 4 }}>分析期間</div>
+                {PERIODS.map(p => (
+                  <button key={p.key} onClick={() => setPeriod(p.key)} style={{ padding: "5px 14px", borderRadius: 20, border: `1px solid ${period === p.key ? COLORS.accent : COLORS.border}`, background: period === p.key ? COLORS.accentSoft : "transparent", color: period === p.key ? COLORS.accent : COLORS.muted, fontSize: 12, fontWeight: period === p.key ? 700 : 400, cursor: "pointer" }}>
+                    {p.label}
+                  </button>
+                ))}
+                {!loading && <div style={{ marginLeft: "auto", fontSize: 11, color: COLORS.muted }}>{sessions.length}件 · AI済 {aiCount}件</div>}
+              </div>
+
+              {metaInfo && displayMeta && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, padding: "8px 12px", background: COLORS.surface, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: COLORS.muted }}>
+                    生成：{formatDate(metaInfo.generatedAt)} · 更新：{formatDate(metaInfo.updatedAt)} · {metaInfo.periodLabel} {metaInfo.sessionCount}件
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setEditingMeta(p => !p)} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: editingMeta ? COLORS.accentSoft : "transparent", color: editingMeta ? COLORS.accent : COLORS.muted, fontSize: 11, cursor: "pointer" }}>
+                      {editingMeta ? "✓ 編集中（自動保存）" : "✏️ 編集"}
+                    </button>
+                    <button onClick={() => { setMetaDraft(null); handleGenerateMeta(); }} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>再生成</button>
+                  </div>
+                </div>
+              )}
+
+              {!displayMeta && !metaLoading && (
+                <div style={{ textAlign: "center", padding: "40px 0" }}>
+                  <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 16, lineHeight: 1.7 }}>
+                    {aiCount === 0 ? "AI整理済みのセッションがありません。" : `期間内のAI整理済みセッション ${aiCount}件 をまとめて縦断分析します。`}
+                  </div>
+                  {aiCount > 0 && (
+                    <button onClick={handleGenerateMeta} style={{ padding: "12px 28px", borderRadius: 10, border: "none", background: COLORS.accent, color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                      ✨ 縦断分析を生成
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {metaLoading && (
+                <div style={{ textAlign: "center", padding: "48px 0" }}>
+                  <div style={{ fontSize: 32, marginBottom: 16 }}>✨</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: COLORS.text, marginBottom: 8 }}>縦断分析を生成中...</div>
+                  <div style={{ fontSize: 12, color: COLORS.muted }}>{aiCount}件のセッションデータを読み込んでいます</div>
+                </div>
+              )}
+
+              {metaError && !metaLoading && (
+                <div style={{ textAlign: "center", padding: "32px 0" }}>
+                  <div style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>分析の生成に失敗しました</div>
+                  <button onClick={handleGenerateMeta} style={{ padding: "8px 20px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>再試行</button>
+                </div>
+              )}
+
+              {displayMeta && !metaLoading && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {META_FIELDS.map(f => (
+                    <MetaFieldCard key={f.key} field={f} value={metaDraft ? metaDraft[f.key] : displayMeta[f.key]} editing={editingMeta} onChange={v => handleMetaFieldChange(f.key, v)} collapsible={f.key === "next_phase"} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
     </div>
   );
 }
@@ -595,7 +820,7 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd, onDetail 
           <div key={s.id} onClick={() => onSelect(s.id)} style={{ padding: "12px", borderRadius: 8, cursor: "pointer", marginBottom: 4, background: selectedId === s.id ? COLORS.card : "transparent", border: `1px solid ${selectedId === s.id ? COLORS.border : "transparent"}`, transition: "all 0.15s" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
               <div style={{ fontSize: 11, color: COLORS.muted }}>{s.session_date}</div>
-              {s.ai_status === "done" ? <div style={{ fontSize: 10, background: "#0f2a1a", color: COLORS.success, padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>AI済</div> : <div style={{ fontSize: 10, background: COLORS.border, color: COLORS.muted, padding: "2px 6px", borderRadius: 4 }}>未整理</div>}
+              {s.ai_status === "done" ? <div style={{ fontSize: 10, background: "#dcfce7", color: "#16a34a", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>AI済</div> : <div style={{ fontSize: 10, background: COLORS.card, color: COLORS.muted, padding: "2px 6px", borderRadius: 4, border: `1px solid ${COLORS.border}` }}>未整理</div>}
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, marginBottom: 4 }}>{s.title}</div>
             <div style={{ fontSize: 11, color: COLORS.muted, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{s.raw_note}</div>
@@ -606,7 +831,7 @@ function SessionList({ athlete, sessions, selectedId, onSelect, onAdd, onDetail 
   );
 }
 
-function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAnalyze, analyzing, onEditSession }: { session: Session | undefined; athlete: Athlete | undefined; onUpdateNote: (note: string) => void; onUpdateAnalysis: (a: Analysis) => void; onAnalyze: (note: string) => void; analyzing: boolean; onEditSession: (s: Session) => void }) {
+function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAnalyze, analyzing, onEditSession, onShowDashboard }: { session: Session | undefined; athlete: Athlete | undefined; onUpdateNote: (note: string) => void; onUpdateAnalysis: (a: Analysis) => void; onAnalyze: (note: string) => void; analyzing: boolean; onEditSession: (s: Session) => void; onShowDashboard?: () => void }) {
   const [note, setNote] = useState(session?.raw_note || "");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
   const [activeTab, setActiveTab] = useState<"note" | "result">(session?.ai_status === "done" ? "result" : "note");
@@ -630,6 +855,9 @@ function SessionDetail({ session, athlete, onUpdateNote, onUpdateAnalysis, onAna
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 11, color: saveStatus === "saving" ? COLORS.warning : COLORS.success }}>{saveStatus === "saving" ? "保存中..." : "✓ 保存済"}</div>
+            {onShowDashboard && (
+              <button onClick={onShowDashboard} title="ダッシュボードに戻る" style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 13, cursor: "pointer" }}>📊</button>
+            )}
             {session.ai_status !== "done" ? (
               <button onClick={() => { onAnalyze(note); setActiveTab("result"); }} disabled={analyzing || !note.trim()} style={{ padding: "8px 18px", borderRadius: 8, border: "none", fontWeight: 700, fontSize: 13, cursor: analyzing ? "wait" : "pointer", background: analyzing ? COLORS.border : COLORS.accent, color: analyzing ? COLORS.muted : "#fff", display: "flex", alignItems: "center", gap: 8 }}>
                 {analyzing ? <><span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>⟳</span> 整理中...</> : <><span>✨</span> AI整理</>}
@@ -704,7 +932,7 @@ function AddSessionModal({ athleteName, onClose, onAdd }: { athleteName: string;
         {[{ label: "日付", value: date, set: setDate, type: "date", ph: "" }, { label: "タイトル", value: title, set: setTitle, type: "text", ph: "試合前メンタル調整" }].map(f => (
           <div key={f.label} style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, fontWeight: 600 }}>{f.label}</div>
-            <input type={f.type} value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph} style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", colorScheme: "dark" }} />
+            <input type={f.type} value={f.value} onChange={e => f.set(e.target.value)} placeholder={f.ph} style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, color: COLORS.text, fontSize: 13, padding: "10px 12px", outline: "none", boxSizing: "border-box", colorScheme: "light" }} />
           </div>
         ))}
         <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
@@ -790,7 +1018,6 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [editingAthlete, setEditingAthlete] = useState<Athlete | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
-  const [detailAthlete, setDetailAthlete] = useState<Athlete | null>(null);
   const [coach, setCoach] = useState<Coach | null>(null);
   const [showCoachSettings, setShowCoachSettings] = useState(false);
   const router = useRouter();
@@ -936,15 +1163,23 @@ export default function Home() {
 
   // スマホ用の画面管理
   const [mobileView, setMobileView] = useState<"athletes" | "sessions" | "detail">("athletes");
+  // 右カラムの表示切り替え（dashboard or session）
+  const [rightView, setRightView] = useState<"dashboard" | "session">("dashboard");
 
   function handleSelectAthleteMobile(id: string) {
     handleSelectAthlete(id);
-    setMobileView("sessions");
+    setRightView("dashboard");
+    setMobileView("detail"); // スマホでは選手選択→即ダッシュボード
   }
 
   function handleSelectSessionMobile(id: string) {
     setSelectedSessionId(id);
+    setRightView("session");
     setMobileView("detail");
+  }
+
+  function handleBackToSessions() {
+    setMobileView("sessions");
   }
 
   if (loading) return (
@@ -963,13 +1198,16 @@ export default function Home() {
           {mobileView === "sessions" && (
             <button onClick={() => setMobileView("athletes")} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
           )}
-          {mobileView === "detail" && (
-            <button onClick={() => setMobileView("sessions")} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
+          {mobileView === "detail" && rightView === "dashboard" && (
+            <button onClick={() => setMobileView("athletes")} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
+          )}
+          {mobileView === "detail" && rightView === "session" && (
+            <button onClick={() => { setRightView("dashboard"); }} style={{ background: "transparent", border: "none", color: COLORS.accent, fontSize: 22, cursor: "pointer", padding: "0 8px 0 0", display: "flex", alignItems: "center" }}>‹</button>
           )}
         </div>
         <div style={{ fontSize: 18 }}>🏅</div>
         <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: "0.05em" }}>
-          {mobileView === "sessions" && selectedAthlete ? selectedAthlete.name : "COACHING LOG"}
+          {mobileView === "detail" && selectedAthlete ? selectedAthlete.name : "COACHING LOG"}
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <a href="/report" title="レポート作成" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 15, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>📄</a>
@@ -997,21 +1235,30 @@ export default function Home() {
         {/* 左カラム */}
         <div className="col-athletes" style={{ display: "flex" }}>
           <Sidebar athletes={athletes} selectedId={selectedAthleteId}
-            onSelect={(id) => { handleSelectAthleteMobile(id); }}
+            onSelect={(id) => { handleSelectAthleteMobile(id); setRightView("dashboard"); }}
             onAdd={() => setShowAddAthlete(true)} onEdit={setEditingAthlete}
-            onDetail={setDetailAthlete} onReorder={handleReorder} onArchive={handleArchiveAthlete} />
+            onDetail={(a) => { setSelectedAthleteId(a.id); setRightView("dashboard"); setMobileView("sessions"); }}
+            onReorder={handleReorder} onArchive={handleArchiveAthlete} />
         </div>
         {/* 中カラム */}
         <div className="col-sessions" style={{ display: "flex", flex: "none" }}>
-          <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={selectedSessionId}
+          <SessionList athlete={selectedAthlete} sessions={athleteSessions} selectedId={rightView === "session" ? selectedSessionId : null}
             onSelect={(id) => { handleSelectSessionMobile(id); }}
-            onAdd={() => setShowAddSession(true)} onDetail={setDetailAthlete} />
+            onAdd={() => setShowAddSession(true)}
+            onDetail={(a) => { setSelectedAthleteId(a.id); setRightView("dashboard"); }} />
         </div>
         {/* 右カラム */}
         <div className="col-detail" style={{ display: "flex", flex: 1, minWidth: 0 }}>
-          <SessionDetail session={selectedSession} athlete={selectedAthlete}
-            onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis}
-            onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession} />
+          {rightView === "dashboard" && selectedAthlete ? (
+            <div style={{ flex: 1, overflowY: "auto", background: COLORS.bg }}>
+              <AthleteDetailPanel athlete={selectedAthlete} coachId={coach?.id || ""} onShowSession={() => setRightView("session")} onUpdateAnalysis={handleUpdateAnalysisById} />
+            </div>
+          ) : (
+            <SessionDetail session={selectedSession} athlete={selectedAthlete}
+              onUpdateNote={handleUpdateNote} onUpdateAnalysis={handleUpdateAnalysis}
+              onAnalyze={handleAnalyze} analyzing={analyzing} onEditSession={setEditingSession}
+              onShowDashboard={() => setRightView("dashboard")} />
+          )}
         </div>
       </div>
 
@@ -1019,7 +1266,6 @@ export default function Home() {
       {showAddSession && selectedAthlete && <AddSessionModal athleteName={selectedAthlete.name} onClose={() => setShowAddSession(false)} onAdd={handleAddSession} />}
       {editingAthlete && <EditAthleteModal athlete={editingAthlete} onClose={() => setEditingAthlete(null)} onSave={handleEditAthlete} onDelete={handleDeleteAthlete} onArchive={handleArchiveAthlete} />}
       {editingSession && <EditSessionModal session={editingSession} onClose={() => setEditingSession(null)} onSave={handleEditSession} onDelete={handleDeleteSession} />}
-      {detailAthlete && <AthleteDetailModal athlete={detailAthlete} onClose={() => setDetailAthlete(null)} onUpdateAnalysis={handleUpdateAnalysisById} />}
       {showCoachSettings && <CoachSettingsModal onClose={() => setShowCoachSettings(false)} coach={coach} onSave={setCoach} />}
 
       <style>{`

@@ -10,9 +10,15 @@ const supabase = createBrowserClient(
 );
 
 const COLORS = {
-  bg: "#1a1d23", surface: "#20242c", card: "#272b35",
-  border: "#2e3340", accent: "#4f8ef7", accentSoft: "#1e3460",
-  text: "#dde1ea", muted: "#7a8499", success: "#34c77b",
+  bg: "#f5f5f7",
+  surface: "#ffffff",
+  card: "#ffffff",
+  border: "#e0e0e5",
+  accent: "#2563eb",
+  accentSoft: "#eff6ff",
+  text: "#1a1a2e",
+  muted: "#6b7280",
+  success: "#16a34a",
 };
 
 export default function LoginPage() {
