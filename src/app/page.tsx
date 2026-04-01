@@ -252,13 +252,20 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Contract & Calendar state
-  const [contract, setContract] = useState<{ id?: string; start_date: string; end_date: string; total_sessions: number } | null>(null);
+  const [contract, setContract] = useState<{ id?: string; start_date: string; end_date: string; total_sessions: number; done_sessions: number } | null>(null);
   const [editingContract, setEditingContract] = useState(false);
   const [contractDraft, setContractDraft] = useState<{ start_date: string; end_date: string; total_sessions: number } | null>(null);
-  const [events, setEvents] = useState<{ id: string; event_date: string; title: string; status: string }[]>([]);
+  const [events, setEvents] = useState<{ id: string; event_date: string; title: string; status: string; start_time?: string; end_time?: string; location?: string; memo?: string }[]>([]);
   const [calMonth, setCalMonth] = useState(new Date());
   const [addingEvent, setAddingEvent] = useState<string | null>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
+  const [newEventStartTime, setNewEventStartTime] = useState("");
+  const [newEventEndTime, setNewEventEndTime] = useState("");
+  const [newEventLocation, setNewEventLocation] = useState("");
+  const [newEventMemo, setNewEventMemo] = useState("");
+  const [editingEvent, setEditingEvent] = useState<{ id: string; event_date: string; title: string; status: string; start_time?: string; end_time?: string; location?: string; memo?: string } | null>(null);
+  const [hoveredEvent, setHoveredEvent] = useState<string | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok });
@@ -334,10 +341,37 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
 
   async function handleAddEvent(date: string) {
     if (!newEventTitle.trim()) return;
-    const { data } = await supabase.from("schedule_events").insert({ athlete_id: athlete.id, event_date: date, title: newEventTitle, status: "planned" }).select().single();
+    const { data } = await supabase.from("schedule_events").insert({
+      athlete_id: athlete.id,
+      event_date: date,
+      title: newEventTitle,
+      status: "planned",
+      start_time: newEventStartTime || null,
+      end_time: newEventEndTime || null,
+      location: newEventLocation || null,
+      memo: newEventMemo || null,
+    }).select().single();
     if (data) setEvents(prev => [...prev, data]);
     setAddingEvent(null);
     setNewEventTitle("");
+    setNewEventStartTime("");
+    setNewEventEndTime("");
+    setNewEventLocation("");
+    setNewEventMemo("");
+  }
+
+  async function handleUpdateEvent() {
+    if (!editingEvent || !editingEvent.title.trim()) return;
+    await supabase.from("schedule_events").update({
+      title: editingEvent.title,
+      start_time: editingEvent.start_time || null,
+      end_time: editingEvent.end_time || null,
+      location: editingEvent.location || null,
+      memo: editingEvent.memo || null,
+      status: editingEvent.status,
+    }).eq("id", editingEvent.id);
+    setEvents(prev => prev.map(e => e.id === editingEvent.id ? editingEvent : e));
+    setEditingEvent(null);
   }
 
   async function handleToggleEvent(event: { id: string; status: string }) {
@@ -403,6 +437,12 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
     setMeta(null);
     setMetaInfo(null);
     setMetaDraft(null);
+    setContract(null);
+    setEvents([]);
+    setEditingContract(false);
+    setAddingEvent(null);
+    setEditingEvent(null);
+    setHoveredEvent(null);
     fetchSavedMeta();
     fetchContract();
     fetchEvents();
@@ -421,10 +461,20 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
   function getFirstDayOfWeek(year: number, month: number) { return new Date(year, month, 1).getDay(); }
   function getEventsForDate(dateStr: string) { return events.filter(e => e.event_date === dateStr); }
 
-  // Contract progress
-  const sessionsDone = events.filter(e => e.status === "done").length;
+  // Contract progress（日数ベース）
+  const sessionsDone = contract?.done_sessions || 0;
   const totalSessions = contract?.total_sessions || 0;
-  const progress = totalSessions > 0 ? Math.min(Math.round((sessionsDone / totalSessions) * 100), 100) : 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dateProgress = (() => {
+    if (!contract?.start_date || !contract?.end_date) return 0;
+    const start = new Date(contract.start_date);
+    const end = new Date(contract.end_date);
+    const total = end.getTime() - start.getTime();
+    const elapsed = today.getTime() - start.getTime();
+    if (total <= 0) return 0;
+    return Math.min(Math.max(Math.round((elapsed / total) * 100), 0), 100);
+  })();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: COLORS.bg, fontFamily: "'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif", color: COLORS.text }}>
@@ -507,23 +557,32 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
                   </div>
                 )}
 
-                {/* プログレスバー */}
-                {totalSessions > 0 && (
+                {/* プログレスバー（日数ベース） */}
+                {contract?.start_date && contract?.end_date && (
                   <>
-                    <div style={{ height: 5, background: COLORS.card, borderRadius: 3, marginBottom: 10, overflow: "hidden" }}>
-                      <div style={{ width: `${progress}%`, height: "100%", background: COLORS.accent, borderRadius: 3, transition: "width 0.3s" }} />
-                    </div>
-                    {/* ドット */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                      {Array.from({ length: totalSessions }).map((_, i) => (
-                        <div key={i} title={`${i + 1}回目`}
-                          style={{ width: 10, height: 10, borderRadius: "50%", background: i < sessionsDone ? COLORS.accent : "transparent", border: `1.5px solid ${i < sessionsDone ? COLORS.accent : COLORS.border}`, cursor: "default" }} />
-                      ))}
-                    </div>
                     {/* 期間表示 */}
-                    {contract?.start_date && (
-                      <div style={{ marginTop: 8, fontSize: 11, color: COLORS.muted }}>
-                        {contract.start_date} 〜 {contract.end_date}
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.muted, marginBottom: 6 }}>
+                      <span>{contract.start_date}</span>
+                      <span style={{ color: COLORS.accent, fontWeight: 600 }}>{dateProgress}%</span>
+                      <span>{contract.end_date}</span>
+                    </div>
+                    {/* バー（日数ベース） */}
+                    <div style={{ height: 6, background: COLORS.card, borderRadius: 3, marginBottom: 12, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+                      <div style={{ width: `${dateProgress}%`, height: "100%", background: COLORS.accent, borderRadius: 3, transition: "width 0.3s" }} />
+                    </div>
+                    {/* セッションドット（タップで済みに変換） */}
+                    {totalSessions > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {Array.from({ length: totalSessions }).map((_, i) => (
+                          <div key={i}
+                            title={`${i + 1}回目${i < sessionsDone ? "（済み）" : "（未）"}`}
+                          onClick={async () => {
+                              const newDone = i < sessionsDone ? i : i + 1;
+                              await supabase.from("contracts").update({ done_sessions: newDone, updated_at: new Date().toISOString() }).eq("id", contract!.id!);
+                              setContract(prev => prev ? { ...prev, done_sessions: newDone } : prev);
+                            }}
+                            style={{ width: 12, height: 12, borderRadius: "50%", background: i < sessionsDone ? COLORS.accent : "transparent", border: `1.5px solid ${i < sessionsDone ? COLORS.accent : COLORS.border}`, cursor: "pointer", transition: "all 0.15s" }} />
+                        ))}
                       </div>
                     )}
                   </>
@@ -567,13 +626,37 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
                       <div key={day} onClick={() => { setAddingEvent(dateStr); setNewEventTitle(""); }}
                         style={{ textAlign: "center", padding: "4px 2px", borderRadius: 6, cursor: "pointer", background: isToday ? COLORS.accentSoft : "transparent", border: isToday ? `1px solid ${COLORS.accent}` : "1px solid transparent" }}>
                         <div style={{ fontSize: 11, color: isToday ? COLORS.accent : COLORS.text, fontWeight: isToday ? 700 : 400 }}>{day}</div>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 2, flexWrap: "wrap", marginTop: 2 }}>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 3, flexWrap: "wrap", marginTop: 3 }}>
                           {dayEvents.map(ev => (
-                            <div key={ev.id}
-                              onClick={e => { e.stopPropagation(); handleToggleEvent(ev); }}
-                              onContextMenu={e => { e.preventDefault(); handleDeleteEvent(ev.id); }}
-                              title={`${ev.title}（${ev.status === "done" ? "実施済み" : "予定"}）長押しで削除`}
-                              style={{ width: 5, height: 5, borderRadius: "50%", background: ev.status === "done" ? COLORS.accent : COLORS.warning, cursor: "pointer" }} />
+                            <div key={ev.id} style={{ position: "relative" }}>
+                              <div
+                                onClick={e => { e.stopPropagation(); handleToggleEvent(ev); }}
+                                onMouseEnter={() => setHoveredEvent(ev.id)}
+                                onMouseLeave={() => setHoveredEvent(null)}
+                                onTouchStart={e => {
+                                  e.stopPropagation();
+                                  longPressTimer.current = setTimeout(() => {
+                                    setEditingEvent(ev);
+                                    setAddingEvent(null);
+                                  }, 600);
+                                }}
+                                onTouchEnd={e => {
+                                  if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                                }}
+                                onTouchMove={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                                onContextMenu={e => { e.preventDefault(); setEditingEvent(ev); setAddingEvent(null); }}
+                                style={{ width: 10, height: 10, borderRadius: "50%", background: ev.status === "done" ? COLORS.accent : COLORS.warning, cursor: "pointer", border: `1.5px solid ${ev.status === "done" ? COLORS.accent : COLORS.warning}` }} />
+                              {/* PC：ホバーツールチップ */}
+                              {hoveredEvent === ev.id && (
+                                <div style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", background: COLORS.text, color: COLORS.surface, fontSize: 10, padding: "4px 8px", borderRadius: 6, whiteSpace: "nowrap", zIndex: 100, pointerEvents: "none" }}>
+                                  <div style={{ fontWeight: 700 }}>{ev.title}</div>
+                                  {ev.start_time && <div>{ev.start_time}{ev.end_time ? `〜${ev.end_time}` : ""}</div>}
+                                  {ev.location && <div>📍 {ev.location}</div>}
+                                  {ev.memo && <div>{ev.memo}</div>}
+                                  <div style={{ opacity: 0.7, marginTop: 2 }}>{ev.status === "done" ? "✓ 実施済み" : "予定"} · 右クリックで編集</div>
+                                </div>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -583,17 +666,78 @@ function AthleteDetailPanel({ athlete, coachId, onShowSession, onUpdateAnalysis 
 
                 {/* 予定追加フォーム */}
                 {addingEvent && (
-                  <div style={{ marginTop: 12, background: COLORS.card, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 6 }}>{addingEvent} に予定を追加</div>
-                    <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ marginTop: 12, background: COLORS.card, borderRadius: 8, padding: 12, border: `1px solid ${COLORS.border}` }}>
+                    <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 10 }}>{addingEvent} に予定を追加</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <input value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)}
-                        placeholder="例：セッション・試合・練習"
-                        onKeyDown={e => e.key === "Enter" && handleAddEvent(addingEvent)}
-                        style={{ flex: 1, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 10px", outline: "none" }} />
-                      <button onClick={() => handleAddEvent(addingEvent)}
-                        style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: COLORS.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>追加</button>
-                      <button onClick={() => setAddingEvent(null)}
-                        style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>✕</button>
+                        placeholder="タイトル（例：セッション・試合）"
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", boxSizing: "border-box" }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: COLORS.muted, marginBottom: 3 }}>開始時刻</div>
+                          <input type="time" value={newEventStartTime} onChange={e => setNewEventStartTime(e.target.value)}
+                            style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: COLORS.muted, marginBottom: 3 }}>終了時刻</div>
+                          <input type="time" value={newEventEndTime} onChange={e => setNewEventEndTime(e.target.value)}
+                            style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                      </div>
+                      <input value={newEventLocation} onChange={e => setNewEventLocation(e.target.value)}
+                        placeholder="場所（任意）"
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", boxSizing: "border-box" }} />
+                      <textarea value={newEventMemo} onChange={e => setNewEventMemo(e.target.value)}
+                        placeholder="メモ（任意）" rows={2}
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", resize: "none", boxSizing: "border-box" }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => handleAddEvent(addingEvent)}
+                          style={{ flex: 1, padding: "8px", borderRadius: 6, border: "none", background: COLORS.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>追加</button>
+                        <button onClick={() => { setAddingEvent(null); setNewEventTitle(""); setNewEventStartTime(""); setNewEventEndTime(""); setNewEventLocation(""); setNewEventMemo(""); }}
+                          style={{ padding: "8px 12px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>✕</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* イベント編集パネル */}
+                {editingEvent && (
+                  <div style={{ marginTop: 12, background: COLORS.card, borderRadius: 8, padding: 12, border: `1px solid ${COLORS.accent}` }}>
+                    <div style={{ fontSize: 11, color: COLORS.accent, marginBottom: 10, fontWeight: 600 }}>{editingEvent.event_date} の予定を編集</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <input value={editingEvent.title} onChange={e => setEditingEvent(p => p ? { ...p, title: e.target.value } : p)}
+                        placeholder="タイトル"
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", boxSizing: "border-box" }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: COLORS.muted, marginBottom: 3 }}>開始時刻</div>
+                          <input type="time" value={editingEvent.start_time || ""} onChange={e => setEditingEvent(p => p ? { ...p, start_time: e.target.value } : p)}
+                            style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: COLORS.muted, marginBottom: 3 }}>終了時刻</div>
+                          <input type="time" value={editingEvent.end_time || ""} onChange={e => setEditingEvent(p => p ? { ...p, end_time: e.target.value } : p)}
+                            style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "6px 8px", outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                      </div>
+                      <input value={editingEvent.location || ""} onChange={e => setEditingEvent(p => p ? { ...p, location: e.target.value } : p)}
+                        placeholder="場所"
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", boxSizing: "border-box" }} />
+                      <textarea value={editingEvent.memo || ""} onChange={e => setEditingEvent(p => p ? { ...p, memo: e.target.value } : p)}
+                        placeholder="メモ" rows={2}
+                        style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 6, color: COLORS.text, fontSize: 12, padding: "7px 10px", outline: "none", resize: "none", boxSizing: "border-box" }} />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={handleUpdateEvent}
+                          style={{ flex: 1, padding: "7px", borderRadius: 6, border: "none", background: COLORS.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>保存</button>
+                        <button onClick={() => { setEditingEvent(p => p ? { ...p, status: p.status === "done" ? "planned" : "done" } : p); }}
+                          style={{ flex: 1, padding: "7px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: editingEvent.status === "done" ? "#dcfce7" : COLORS.surface, color: editingEvent.status === "done" ? COLORS.success : COLORS.muted, fontSize: 11, cursor: "pointer" }}>
+                          {editingEvent.status === "done" ? "✓ 実施済み" : "実施済みにする"}
+                        </button>
+                        <button onClick={() => { handleDeleteEvent(editingEvent.id); setEditingEvent(null); }}
+                          style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid #fca5a5`, background: "#fff1f2", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>削除</button>
+                        <button onClick={() => setEditingEvent(null)}
+                          style={{ padding: "7px 10px", borderRadius: 6, border: `1px solid ${COLORS.border}`, background: "transparent", color: COLORS.muted, fontSize: 12, cursor: "pointer" }}>✕</button>
+                      </div>
                     </div>
                   </div>
                 )}
